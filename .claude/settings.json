@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./client_secret.json)",
+      "Read(./token.json)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -qE 'client_secret\\.json|token\\.json' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"client_secret.json / token.json は読み取り禁止です\"}}' || true"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "ghealth-mcp",
+  "version": "1.0.0",
+  "description": "Google Health API の運動データを参照するローカル MCP サーバー",
+  "main": "src/server.js",
+  "scripts": {
+    "auth": "node src/auth.js",
+    "start": "node src/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "google-auth-library": "^11.0.2",
+    "zod": "^4.4.3"
+  },
+  "bin": {
+    "ghealth-mcp": "src/server.js"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  }
+}
