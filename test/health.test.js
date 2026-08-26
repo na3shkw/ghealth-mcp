@@ -1,10 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { dataPointWithId, runningDataPoint } from './fixtures.js';
+import {
+  dataPointWithId,
+  restingHeartRateDataPoint,
+  restingHeartRateOn,
+  runningDataPoint,
+} from './fixtures.js';
 
 const request = vi.fn();
 vi.mock('../src/auth-client.js', () => ({ createAuthClient: () => ({ request }) }));
 
-const { getExercise, listExercises } = await import('../src/health.js');
+const { getExercise, listExercises, listRestingHeartRate } = await import('../src/health.js');
 
 /** 呼び出し n 回目のリクエスト URL を URL オブジェクトで返す */
 const urlOf = (n = 0) => new URL(request.mock.calls[n][0].url);
@@ -205,5 +210,82 @@ describe('getExercise', () => {
   it('存在しない id のエラーを伝播させる', async () => {
     request.mockRejectedValue(new Error('The requested resource was not found.'));
     await expect(getExercise('999')).rejects.toThrow('not found');
+  });
+});
+
+describe('listRestingHeartRate', () => {
+  it('daily-resting-heart-rate のエンドポイントを叩く', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [] } });
+    await listRestingHeartRate({});
+
+    expect(urlOf().pathname).toBe('/v4/users/me/dataTypes/daily-resting-heart-rate/dataPoints');
+  });
+
+  it('date で期間を絞る（to を含めるため翌日未満で切る）', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [] } });
+    await listRestingHeartRate({ from: '2026-08-01', to: '2026-08-25' });
+
+    expect(urlOf().searchParams.get('filter')).toBe(
+      'daily_resting_heart_rate.date>="2026-08-01" AND daily_resting_heart_rate.date<"2026-08-26"',
+    );
+  });
+
+  describe('既定の期間', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-25T12:00:00Z'));
+      request.mockResolvedValue({ data: { dataPoints: [] } });
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('省略時は今日までの 30 日間', async () => {
+      await listRestingHeartRate();
+
+      expect(urlOf().searchParams.get('filter')).toBe(
+        'daily_resting_heart_rate.date>="2026-07-26" AND daily_resting_heart_rate.date<"2026-08-26"',
+      );
+    });
+  });
+
+  it('localDate と bpm だけを返す', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [restingHeartRateDataPoint] } });
+
+    expect(await listRestingHeartRate({})).toEqual([{ localDate: '2026-03-01', bpm: 55 }]);
+  });
+
+  it('日付の昇順に並べ替える', async () => {
+    request.mockResolvedValue({
+      data: {
+        dataPoints: [
+          restingHeartRateOn(2026, 8, 10, 55),
+          restingHeartRateOn(2026, 8, 2, 51),
+          restingHeartRateOn(2026, 12, 1, 50),
+        ],
+      },
+    });
+
+    expect((await listRestingHeartRate({})).map((r) => r.localDate)).toEqual([
+      '2026-08-02',
+      '2026-08-10',
+      '2026-12-01',
+    ]);
+  });
+
+  it('nextPageToken を辿って全ページ取得する', async () => {
+    request
+      .mockResolvedValueOnce({
+        data: { dataPoints: [restingHeartRateOn(2026, 8, 1, 50)], nextPageToken: 'TOKEN' },
+      })
+      .mockResolvedValueOnce({ data: { dataPoints: [restingHeartRateOn(2026, 8, 2, 51)] } });
+
+    const result = await listRestingHeartRate({});
+
+    expect(urlOf(1).searchParams.get('pageToken')).toBe('TOKEN');
+    expect(result.map((r) => r.bpm)).toEqual([50, 51]);
+  });
+
+  it('dataPoints が欠けたレスポンスでも落ちない', async () => {
+    request.mockResolvedValue({ data: {} });
+    expect(await listRestingHeartRate({})).toEqual([]);
   });
 });

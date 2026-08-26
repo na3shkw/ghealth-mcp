@@ -64,6 +64,13 @@ export function toLocalDate(startTime, startUtcOffset) {
   return `${shifted.toISOString().slice(0, 19)}${tz}`;
 }
 
+/** API の `Date` オブジェクト（年月日、ユーザーのタイムゾーン）を `YYYY-MM-DD` にする */
+export function toIsoDay(date) {
+  if (!date?.year || !date.month || !date.day) return undefined;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.year}-${pad(date.month)}-${pad(date.day)}`;
+}
+
 /** `users/{uid}/dataTypes/exercise/dataPoints/{id}` の末尾を取り出す */
 const dataPointId = (name) => name?.split('/').pop();
 
@@ -134,6 +141,15 @@ export function detail(dataPoint) {
   };
 }
 
+/** 安静時心拍数の dataPoint を `{ localDate, bpm }` に整形する */
+export function restingHeartRate(dataPoint) {
+  const rhr = dataPoint.dailyRestingHeartRate ?? {};
+  return {
+    localDate: toIsoDay(rhr.date),
+    bpm: num(rhr.beatsPerMinute),
+  };
+}
+
 const isoDate = (date) => date.toISOString().slice(0, 10);
 
 function shiftDays(isoDay, days) {
@@ -178,4 +194,33 @@ export async function getExercise(id) {
     url: `${BASE}/dataTypes/exercise/dataPoints/${encodeURIComponent(id)}`,
   });
   return detail(data);
+}
+
+export async function listRestingHeartRate({ from, to } = {}) {
+  const today = isoDate(new Date());
+  const toDay = to ?? today;
+  const fromDay = from ?? shiftDays(toDay, -30);
+
+  // date は日単位の値。to を含めるため翌日未満で切る
+  const filter =
+    `daily_resting_heart_rate.date>="${fromDay}" AND ` +
+    `daily_resting_heart_rate.date<"${shiftDays(toDay, 1)}"`;
+
+  const results = [];
+  let pageToken;
+
+  do {
+    const params = new URLSearchParams({ filter, pageSize: '100' });
+    if (pageToken) params.set('pageToken', pageToken);
+
+    const { data } = await auth().request({
+      url: `${BASE}/dataTypes/daily-resting-heart-rate/dataPoints?${params}`,
+    });
+
+    for (const dp of data.dataPoints ?? []) results.push(restingHeartRate(dp));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  // 推移を追いやすいよう日付の昇順で返す
+  return results.sort((a, b) => (a.localDate ?? '').localeCompare(b.localDate ?? ''));
 }

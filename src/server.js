@@ -2,7 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { getExercise, listExercises } from './health.js';
+import { getExercise, listExercises, listRestingHeartRate } from './health.js';
 
 const server = new McpServer({ name: 'ghealth', version: '1.0.0' });
 
@@ -48,6 +48,26 @@ server.registerTool(
   async ({ id }) => {
     try {
       return json(await getExercise(id));
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'get_resting_heart_rate',
+  {
+    title: '安静時心拍数',
+    description:
+      '日ごとの安静時心拍数を日付の昇順で返す。心拍ゾーンの基準になる予備心拍数 (最大心拍数 − 安静時心拍数) の算出に使う。',
+    inputSchema: {
+      from: isoDate.optional().describe('開始日 (ローカル日付)。省略時は to の 30 日前'),
+      to: isoDate.optional().describe('終了日 (ローカル日付, この日を含む)。省略時は今日'),
+    },
+  },
+  async (args) => {
+    try {
+      return json(await listRestingHeartRate(args));
     } catch (e) {
       return fail(e);
     }

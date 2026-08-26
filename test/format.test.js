@@ -5,10 +5,12 @@ import {
   formatPace,
   num,
   parseSeconds,
+  restingHeartRate,
   summarize,
+  toIsoDay,
   toLocalDate,
 } from '../src/health.js';
-import { runningDataPoint, sparseDataPoint } from './fixtures.js';
+import { restingHeartRateDataPoint, runningDataPoint, sparseDataPoint } from './fixtures.js';
 
 describe('parseSeconds', () => {
   it('末尾の s を落として数値にする', () => {
@@ -198,5 +200,34 @@ describe('detail', () => {
       vigorous: undefined,
       peak: undefined,
     });
+  });
+});
+
+describe('toIsoDay', () => {
+  it('年月日を YYYY-MM-DD に組む', () => {
+    expect(toIsoDay({ year: 2026, month: 3, day: 1 })).toBe('2026-03-01');
+  });
+
+  it('月日をゼロ埋めする', () => {
+    expect(toIsoDay({ year: 2026, month: 12, day: 31 })).toBe('2026-12-31');
+  });
+
+  it('欠けていれば undefined', () => {
+    expect(toIsoDay(undefined)).toBeUndefined();
+    expect(toIsoDay({})).toBeUndefined();
+    expect(toIsoDay({ year: 2026, month: 8 })).toBeUndefined();
+  });
+});
+
+describe('restingHeartRate', () => {
+  it('文字列の beatsPerMinute を数値にする', () => {
+    expect(restingHeartRate(restingHeartRateDataPoint)).toEqual({
+      localDate: '2026-03-01',
+      bpm: 55,
+    });
+  });
+
+  it('値が欠けていても落ちない', () => {
+    expect(restingHeartRate({})).toEqual({ localDate: undefined, bpm: undefined });
   });
 });

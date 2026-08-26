@@ -68,3 +68,22 @@ export const dataPointWithId = (id) => ({
   ...sparseDataPoint,
   name: `users/1234567890/dataTypes/exercise/dataPoints/${id}`,
 });
+
+/** 安静時心拍数の 1 日分。beatsPerMinute は int64 なので文字列で来る */
+export const restingHeartRateDataPoint = {
+  name: 'users/1234567890/dataTypes/daily-resting-heart-rate/dataPoints/1',
+  dailyRestingHeartRate: {
+    date: { year: 2026, month: 3, day: 1 },
+    dailyRestingHeartRateMetadata: { calculationMethod: 'WITH_SLEEP' },
+    beatsPerMinute: '55',
+  },
+};
+
+export const restingHeartRateOn = (year, month, day, bpm) => ({
+  ...restingHeartRateDataPoint,
+  dailyRestingHeartRate: {
+    ...restingHeartRateDataPoint.dailyRestingHeartRate,
+    date: { year, month, day },
+    beatsPerMinute: String(bpm),
+  },
+});
