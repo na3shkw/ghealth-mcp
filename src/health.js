@@ -175,6 +175,29 @@ const minutesToDuration = (minutes) => {
 };
 
 /**
+ * 入眠までにかかった分数を stages の先頭から求める。
+ * summary.minutesToFallAsleep は Fitbit 側が埋めておらず常に 0 で来るため、
+ * セッション冒頭に連続する AWAKE 区間の長さを代わりに使う。
+ * 「布団に入ってから」ではなく「デバイスが睡眠セッションを検出してから」が起点。
+ */
+export function sleepOnsetMinutes(stages) {
+  if (!Array.isArray(stages) || stages.length === 0) return undefined;
+
+  // 並び順は保証されていないので開始時刻で整列してから先頭を見る
+  const sorted = [...stages].sort((a, b) => (a.startTime ?? '').localeCompare(b.startTime ?? ''));
+
+  let seconds = 0;
+  for (const stage of sorted) {
+    if (stage.type !== 'AWAKE') break;
+    const s = intervalSeconds(stage);
+    // 区間の長さが取れないものが混じったら潜時は確定できない
+    if (s == null) return undefined;
+    seconds += s;
+  }
+  return round(seconds / 60, 1);
+}
+
+/**
  * 睡眠の dataPoint を整形する。
  * ステージ別の分数は API の summary.stagesSummary をそのまま使う。
  * stages の区間を積み上げても近い値にはなるが、summary 側が Fitbit の確定値。
@@ -209,7 +232,9 @@ export function sleepSession(dataPoint) {
     timeInBed: minutesToDuration(summary.minutesInSleepPeriod) ?? formatDuration(inBedSeconds),
     timeAsleep: minutesToDuration(summary.minutesAsleep),
     awakeMinutes: num(summary.minutesAwake),
-    minutesToFallAsleep: num(summary.minutesToFallAsleep),
+    // 常に 0 で来る値を「即座に入眠」と読み違えないよう、埋まっているときだけ返す
+    minutesToFallAsleep: num(summary.minutesToFallAsleep) || undefined,
+    sleepOnsetMinutes: sleepOnsetMinutes(s.stages),
     // 眠りの分断の指標。数分未満の覚醒は stages ではなくこちらに入る
     shortAwakenings: s.shortAwakenings?.length,
     efficiencyPercent: asleep != null && inBed ? round((asleep / inBed) * 100, 1) : undefined,

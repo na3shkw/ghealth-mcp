@@ -7,6 +7,7 @@ import {
   num,
   parseSeconds,
   restingHeartRate,
+  sleepOnsetMinutes,
   sleepSession,
   summarize,
   toIsoDay,
@@ -272,11 +273,20 @@ describe('sleepSession', () => {
     });
   });
 
-  it('覚醒の分数と寝付きまでの分数を数値で返す', () => {
-    const s = sleepSession(sleepDataPoint);
+  it('覚醒の分数を数値で返す', () => {
+    expect(sleepSession(sleepDataPoint).awakeMinutes).toBe(30);
+  });
 
-    expect(s.awakeMinutes).toBe(30);
-    expect(s.minutesToFallAsleep).toBe(0);
+  it('常に 0 で来る minutesToFallAsleep は返さない', () => {
+    expect(sleepSession(sleepDataPoint).minutesToFallAsleep).toBeUndefined();
+  });
+
+  it('入眠潜時を stages の先頭 AWAKE から出す', () => {
+    expect(sleepSession(sleepDataPoint).sleepOnsetMinutes).toBe(15);
+  });
+
+  it('stages がない記録では入眠潜時を返さない', () => {
+    expect(sleepSession(classicSleepDataPoint).sleepOnsetMinutes).toBeUndefined();
   });
 
   it('短時間覚醒は件数だけ返す', () => {
@@ -306,6 +316,63 @@ describe('sleepSession', () => {
 
   it('空の dataPoint でも落ちない', () => {
     expect(() => sleepSession({})).not.toThrow();
+  });
+});
+
+describe('sleepOnsetMinutes', () => {
+  const stage = (type, startTime, endTime) => ({ type, startTime, endTime });
+
+  it('先頭に連続する AWAKE をすべて足す', () => {
+    expect(
+      sleepOnsetMinutes([
+        stage('AWAKE', '2026-09-01T00:00:00Z', '2026-09-01T00:05:00Z'),
+        stage('AWAKE', '2026-09-01T00:05:00Z', '2026-09-01T00:12:00Z'),
+        stage('LIGHT', '2026-09-01T00:12:00Z', '2026-09-01T01:00:00Z'),
+      ]),
+    ).toBe(12);
+  });
+
+  it('AWAKE で始まらなければ 0', () => {
+    expect(
+      sleepOnsetMinutes([stage('LIGHT', '2026-09-01T00:00:00Z', '2026-09-01T01:00:00Z')]),
+    ).toBe(0);
+  });
+
+  it('夜中の AWAKE は潜時に含めない', () => {
+    expect(
+      sleepOnsetMinutes([
+        stage('AWAKE', '2026-09-01T00:00:00Z', '2026-09-01T00:04:00Z'),
+        stage('LIGHT', '2026-09-01T00:04:00Z', '2026-09-01T01:00:00Z'),
+        stage('AWAKE', '2026-09-01T01:00:00Z', '2026-09-01T01:30:00Z'),
+      ]),
+    ).toBe(4);
+  });
+
+  it('並び順が崩れていても開始時刻で整列してから見る', () => {
+    expect(
+      sleepOnsetMinutes([
+        stage('LIGHT', '2026-09-01T00:06:00Z', '2026-09-01T01:00:00Z'),
+        stage('AWAKE', '2026-09-01T00:00:00Z', '2026-09-01T00:06:00Z'),
+      ]),
+    ).toBe(6);
+  });
+
+  it('30 秒刻みの区間は小数で返す', () => {
+    expect(
+      sleepOnsetMinutes([
+        stage('AWAKE', '2026-09-01T00:00:00Z', '2026-09-01T00:03:30Z'),
+        stage('LIGHT', '2026-09-01T00:03:30Z', '2026-09-01T01:00:00Z'),
+      ]),
+    ).toBe(3.5);
+  });
+
+  it('先頭 AWAKE の長さが取れなければ確定できない', () => {
+    expect(sleepOnsetMinutes([stage('AWAKE', '2026-09-01T00:00:00Z', undefined)])).toBeUndefined();
+  });
+
+  it('stages がない・空なら undefined', () => {
+    expect(sleepOnsetMinutes(undefined)).toBeUndefined();
+    expect(sleepOnsetMinutes([])).toBeUndefined();
   });
 });
 
