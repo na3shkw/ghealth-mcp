@@ -87,3 +87,151 @@ export const restingHeartRateOn = (year, month, day, bpm) => ({
     beatsPerMinute: String(bpm),
   },
 });
+
+/**
+ * ステージ付きの睡眠 1 件。実 API のレスポンス構造に合わせたダミー値。
+ * stages と shortAwakenings は実レスポンスと同じ件数だけ並べてある。
+ * 就寝 00:30〜起床 07:30 (JST)。分は int64 なので文字列で来る。
+ */
+export const sleepDataPoint = {
+  name: 'users/1234567890/dataTypes/sleep/dataPoints/3333333333',
+  dataSource: {
+    recordingMethod: 'DERIVED',
+    device: { displayName: 'Smart Watch' },
+    platform: 'FITBIT',
+  },
+  sleep: {
+    interval: {
+      startTime: '2026-03-14T15:30:00Z',
+      startUtcOffset: '32400s',
+      endTime: '2026-03-14T22:30:00Z',
+      endUtcOffset: '32400s',
+    },
+    type: 'STAGES',
+    stages: [
+      {
+        startTime: '2026-03-14T15:30:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T15:45:00Z',
+        endUtcOffset: '32400s',
+        type: 'AWAKE',
+      },
+      {
+        startTime: '2026-03-14T15:45:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T16:30:00Z',
+        endUtcOffset: '32400s',
+        type: 'LIGHT',
+      },
+      {
+        startTime: '2026-03-14T16:30:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T17:00:00Z',
+        endUtcOffset: '32400s',
+        type: 'DEEP',
+      },
+      {
+        startTime: '2026-03-14T17:15:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T17:50:00Z',
+        endUtcOffset: '32400s',
+        type: 'REM',
+      },
+      {
+        startTime: '2026-03-14T22:15:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T22:30:00Z',
+        endUtcOffset: '32400s',
+        type: 'AWAKE',
+      },
+    ],
+    metadata: { stagesStatus: 'SUCCEEDED', processed: true, mainSleep: true },
+    summary: {
+      minutesInSleepPeriod: '420',
+      minutesAfterWakeUp: '0',
+      minutesToFallAsleep: '0',
+      minutesAsleep: '390',
+      minutesAwake: '30',
+      stagesSummary: [
+        { type: 'AWAKE', minutes: '30', count: '2' },
+        { type: 'LIGHT', minutes: '210', count: '11' },
+        { type: 'DEEP', minutes: '70', count: '5' },
+        { type: 'REM', minutes: '110', count: '5' },
+      ],
+    },
+    createTime: '2026-03-14T22:00:00.000000Z',
+    updateTime: '2026-03-14T22:30:00.000000Z',
+    shortAwakenings: [
+      {
+        startTime: '2026-03-14T17:20:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T17:21:00Z',
+        endUtcOffset: '32400s',
+        type: 'AWAKE',
+      },
+      {
+        startTime: '2026-03-14T19:00:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T19:01:00Z',
+        endUtcOffset: '32400s',
+        type: 'AWAKE',
+      },
+      {
+        startTime: '2026-03-14T19:30:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T19:30:30Z',
+        endUtcOffset: '32400s',
+        type: 'AWAKE',
+      },
+      {
+        startTime: '2026-03-14T20:00:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T20:02:00Z',
+        endUtcOffset: '32400s',
+        type: 'AWAKE',
+      },
+      {
+        startTime: '2026-03-14T20:30:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T20:30:30Z',
+        endUtcOffset: '32400s',
+        type: 'AWAKE',
+      },
+      {
+        startTime: '2026-03-14T21:00:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T21:00:30Z',
+        endUtcOffset: '32400s',
+        type: 'AWAKE',
+      },
+      {
+        startTime: '2026-03-14T22:00:00Z',
+        startUtcOffset: '32400s',
+        endTime: '2026-03-14T22:01:00Z',
+        endUtcOffset: '32400s',
+        type: 'AWAKE',
+      },
+    ],
+  },
+};
+
+/** summary もステージも付かない記録。解析前や手動記録で起こりうる */
+export const classicSleepDataPoint = {
+  name: 'users/1234567890/dataTypes/sleep/dataPoints/43',
+  sleep: {
+    interval: {
+      startTime: '2026-03-10T15:00:00Z',
+      startUtcOffset: '32400s',
+      endTime: '2026-03-10T22:00:00Z',
+      endUtcOffset: '32400s',
+    },
+    type: 'CLASSIC',
+    metadata: { stagesStatus: 'NOT_ENOUGH_DATA', processed: true, mainSleep: true },
+  },
+};
+
+export const sleepStartingAt = (startTime, id = '1') => ({
+  ...sleepDataPoint,
+  name: `users/1234567890/dataTypes/sleep/dataPoints/${id}`,
+  sleep: { ...sleepDataPoint.sleep, interval: { ...sleepDataPoint.sleep.interval, startTime } },
+});

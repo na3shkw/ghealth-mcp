@@ -4,12 +4,14 @@ import {
   restingHeartRateDataPoint,
   restingHeartRateOn,
   runningDataPoint,
+  sleepStartingAt,
 } from './fixtures.js';
 
 const request = vi.fn();
 vi.mock('../src/auth-client.js', () => ({ createAuthClient: () => ({ request }) }));
 
-const { getExercise, listExercises, listRestingHeartRate } = await import('../src/health.js');
+const { getExercise, listExercises, listRestingHeartRate, listSleep } =
+  await import('../src/health.js');
 
 /** 呼び出し n 回目のリクエスト URL を URL オブジェクトで返す */
 const urlOf = (n = 0) => new URL(request.mock.calls[n][0].url);
@@ -287,5 +289,91 @@ describe('listRestingHeartRate', () => {
   it('dataPoints が欠けたレスポンスでも落ちない', async () => {
     request.mockResolvedValue({ data: {} });
     expect(await listRestingHeartRate({})).toEqual([]);
+  });
+});
+
+describe('listSleep', () => {
+  it('sleep のエンドポイントを叩く', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [] } });
+    await listSleep({});
+
+    expect(urlOf().pathname).toBe('/v4/users/me/dataTypes/sleep/dataPoints');
+  });
+
+  it('civil_end_time で期間を絞る（start 側は API が受け付けない）', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [] } });
+    await listSleep({ from: '2026-08-01', to: '2026-08-25' });
+
+    expect(urlOf().searchParams.get('filter')).toBe(
+      'sleep.interval.civil_end_time>="2026-08-01T00:00:00" AND ' +
+        'sleep.interval.civil_end_time<"2026-08-26T00:00:00"',
+    );
+  });
+
+  it('pageSize は sleep の上限 25', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [] } });
+    await listSleep({});
+
+    expect(urlOf().searchParams.get('pageSize')).toBe('25');
+  });
+
+  describe('既定の期間', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-25T12:00:00Z'));
+      request.mockResolvedValue({ data: { dataPoints: [] } });
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('省略時は今日までの 30 日間', async () => {
+      await listSleep();
+
+      expect(urlOf().searchParams.get('filter')).toBe(
+        'sleep.interval.civil_end_time>="2026-07-26T00:00:00" AND ' +
+          'sleep.interval.civil_end_time<"2026-08-26T00:00:00"',
+      );
+    });
+  });
+
+  it('就寝時刻の昇順に並べ替える', async () => {
+    request.mockResolvedValue({
+      data: {
+        dataPoints: [
+          sleepStartingAt('2026-08-26T14:00:00Z', 'c'),
+          sleepStartingAt('2026-08-24T14:00:00Z', 'a'),
+          sleepStartingAt('2026-08-25T14:00:00Z', 'b'),
+        ],
+      },
+    });
+
+    expect((await listSleep({})).map((s) => s.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('nextPageToken を辿って全ページ取得する', async () => {
+    request
+      .mockResolvedValueOnce({
+        data: {
+          dataPoints: [sleepStartingAt('2026-08-24T14:00:00Z', 'a')],
+          nextPageToken: 'TOKEN',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: { dataPoints: [sleepStartingAt('2026-08-25T14:00:00Z', 'b')] },
+      });
+
+    const result = await listSleep({});
+
+    expect(urlOf(1).searchParams.get('pageToken')).toBe('TOKEN');
+    expect(result.map((s) => s.id)).toEqual(['a', 'b']);
+  });
+
+  it('dataPoints が欠けたレスポンスでも落ちない', async () => {
+    request.mockResolvedValue({ data: {} });
+    expect(await listSleep({})).toEqual([]);
+  });
+
+  it('スコープ不足のエラーはそのまま伝播させる', async () => {
+    request.mockRejectedValue(new Error('Required OAuth scope(s) are missing for this operation.'));
+    await expect(listSleep({})).rejects.toThrow('Required OAuth scope');
   });
 });

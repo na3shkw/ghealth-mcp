@@ -150,6 +150,73 @@ export function restingHeartRate(dataPoint) {
   };
 }
 
+/** 睡眠ステージの enum を出力キーに対応づける */
+const SLEEP_STAGE_KEYS = {
+  DEEP: 'deep',
+  LIGHT: 'light',
+  REM: 'rem',
+  AWAKE: 'awake',
+  ASLEEP: 'asleep',
+  RESTLESS: 'restless',
+};
+
+/** 開始・終了を直に持つ区間（stages など）の経過秒数。片方でも欠けていれば undefined */
+export function intervalSeconds(interval) {
+  const start = new Date(interval?.startTime ?? '').getTime();
+  const end = new Date(interval?.endTime ?? '').getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return undefined;
+  return (end - start) / 1000;
+}
+
+/** 分（int64 なので文字列で来る）を `H:MM:SS` に整形する */
+const minutesToDuration = (minutes) => {
+  const n = num(minutes);
+  return n == null ? undefined : formatDuration(n * 60);
+};
+
+/**
+ * 睡眠の dataPoint を整形する。
+ * ステージ別の分数は API の summary.stagesSummary をそのまま使う。
+ * stages の区間を積み上げても近い値にはなるが、summary 側が Fitbit の確定値。
+ */
+export function sleepSession(dataPoint) {
+  const s = dataPoint.sleep ?? {};
+  const interval = s.interval ?? {};
+  const summary = s.summary ?? {};
+
+  const stageMinutes = {};
+  for (const stage of summary.stagesSummary ?? []) {
+    const key = SLEEP_STAGE_KEYS[stage.type];
+    const minutes = num(stage.minutes);
+    if (key && minutes != null) stageMinutes[key] = minutes;
+  }
+
+  const asleep = num(summary.minutesAsleep);
+  const inBedSeconds = intervalSeconds(interval);
+  const inBed =
+    num(summary.minutesInSleepPeriod) ?? (inBedSeconds == null ? undefined : inBedSeconds / 60);
+  // 終了側のオフセットで起床時刻を組む
+  const wakeTime = toLocalDate(interval.endTime, interval.endUtcOffset ?? interval.startUtcOffset);
+
+  return {
+    id: dataPointId(dataPoint.name),
+    // 就寝は日をまたぐため、起床日を「その晩」の代表日として扱う
+    localDate: wakeTime?.slice(0, 10),
+    bedtime: toLocalDate(interval.startTime, interval.startUtcOffset),
+    wakeTime,
+    type: s.type,
+    isMainSleep: s.metadata?.mainSleep,
+    timeInBed: minutesToDuration(summary.minutesInSleepPeriod) ?? formatDuration(inBedSeconds),
+    timeAsleep: minutesToDuration(summary.minutesAsleep),
+    awakeMinutes: num(summary.minutesAwake),
+    minutesToFallAsleep: num(summary.minutesToFallAsleep),
+    // 眠りの分断の指標。数分未満の覚醒は stages ではなくこちらに入る
+    shortAwakenings: s.shortAwakenings?.length,
+    efficiencyPercent: asleep != null && inBed ? round((asleep / inBed) * 100, 1) : undefined,
+    stageMinutes: Object.keys(stageMinutes).length > 0 ? stageMinutes : undefined,
+  };
+}
+
 const isoDate = (date) => date.toISOString().slice(0, 10);
 
 function shiftDays(isoDay, days) {
@@ -223,4 +290,35 @@ export async function listRestingHeartRate({ from, to } = {}) {
 
   // 推移を追いやすいよう日付の昇順で返す
   return results.sort((a, b) => (a.localDate ?? '').localeCompare(b.localDate ?? ''));
+}
+
+export async function listSleep({ from, to } = {}) {
+  const today = isoDate(new Date());
+  const toDay = to ?? today;
+  const fromDay = from ?? shiftDays(toDay, -30);
+
+  // sleep は civil_end_time（起床時刻のローカル時刻）でしか絞り込めない。
+  // localDate を起床日にしてあるのと同じ基準になる。to を含めるため翌日 0 時未満で切る
+  const filter =
+    `sleep.interval.civil_end_time>="${fromDay}T00:00:00" AND ` +
+    `sleep.interval.civil_end_time<"${shiftDays(toDay, 1)}T00:00:00"`;
+
+  const results = [];
+  let pageToken;
+
+  do {
+    // sleep はページサイズの上限が 25
+    const params = new URLSearchParams({ filter, pageSize: '25' });
+    if (pageToken) params.set('pageToken', pageToken);
+
+    const { data } = await auth().request({
+      url: `${BASE}/dataTypes/sleep/dataPoints?${params}`,
+    });
+
+    for (const dp of data.dataPoints ?? []) results.push(sleepSession(dp));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  // 推移を追いやすいよう就寝時刻の昇順で返す
+  return results.sort((a, b) => (a.bedtime ?? '').localeCompare(b.bedtime ?? ''));
 }

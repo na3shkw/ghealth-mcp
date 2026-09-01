@@ -1,16 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
   detail,
+  intervalSeconds,
   formatDuration,
   formatPace,
   num,
   parseSeconds,
   restingHeartRate,
+  sleepSession,
   summarize,
   toIsoDay,
   toLocalDate,
 } from '../src/health.js';
-import { restingHeartRateDataPoint, runningDataPoint, sparseDataPoint } from './fixtures.js';
+import {
+  classicSleepDataPoint,
+  restingHeartRateDataPoint,
+  runningDataPoint,
+  sleepDataPoint,
+  sparseDataPoint,
+} from './fixtures.js';
 
 describe('parseSeconds', () => {
   it('末尾の s を落として数値にする', () => {
@@ -229,5 +237,90 @@ describe('restingHeartRate', () => {
 
   it('値が欠けていても落ちない', () => {
     expect(restingHeartRate({})).toEqual({ localDate: undefined, bpm: undefined });
+  });
+});
+
+describe('sleepSession', () => {
+  it('就寝・起床のローカル時刻を組む', () => {
+    const s = sleepSession(sleepDataPoint);
+
+    expect(s.bedtime).toBe('2026-03-15T00:30:00+09:00');
+    expect(s.wakeTime).toBe('2026-03-15T07:30:00+09:00');
+  });
+
+  it('日をまたぐため起床日を localDate にする', () => {
+    expect(sleepSession(sleepDataPoint).localDate).toBe('2026-03-15');
+  });
+
+  it('床上時間と睡眠時間は summary の分数から整形する', () => {
+    const s = sleepSession(sleepDataPoint);
+
+    expect(s.timeInBed).toBe('7:00:00');
+    expect(s.timeAsleep).toBe('6:30:00');
+  });
+
+  it('睡眠効率は minutesAsleep / minutesInSleepPeriod', () => {
+    expect(sleepSession(sleepDataPoint).efficiencyPercent).toBe(92.9);
+  });
+
+  it('ステージ別の分数を summary.stagesSummary から取る', () => {
+    expect(sleepSession(sleepDataPoint).stageMinutes).toEqual({
+      awake: 30,
+      light: 210,
+      deep: 70,
+      rem: 110,
+    });
+  });
+
+  it('覚醒の分数と寝付きまでの分数を数値で返す', () => {
+    const s = sleepSession(sleepDataPoint);
+
+    expect(s.awakeMinutes).toBe(30);
+    expect(s.minutesToFallAsleep).toBe(0);
+  });
+
+  it('短時間覚醒は件数だけ返す', () => {
+    expect(sleepSession(sleepDataPoint).shortAwakenings).toBe(7);
+  });
+
+  it('種別とメイン睡眠かどうかを返す', () => {
+    const s = sleepSession(sleepDataPoint);
+
+    expect(s.type).toBe('STAGES');
+    expect(s.isMainSleep).toBe(true);
+  });
+
+  it('summary がない記録では床上時間を interval から出す', () => {
+    const s = sleepSession(classicSleepDataPoint);
+
+    expect(s.timeInBed).toBe('7:00:00');
+    expect(s.timeAsleep).toBeUndefined();
+    expect(s.efficiencyPercent).toBeUndefined();
+    expect(s.stageMinutes).toBeUndefined();
+    expect(s.type).toBe('CLASSIC');
+  });
+
+  it('id は name の末尾', () => {
+    expect(sleepSession(sleepDataPoint).id).toBe('3333333333');
+  });
+
+  it('空の dataPoint でも落ちない', () => {
+    expect(() => sleepSession({})).not.toThrow();
+  });
+});
+
+describe('intervalSeconds', () => {
+  it('開始と終了の差を秒で返す', () => {
+    expect(
+      intervalSeconds({ startTime: '2026-08-24T14:10:00Z', endTime: '2026-08-24T14:40:30Z' }),
+    ).toBe(1830);
+  });
+
+  it('終了が欠けていれば undefined', () => {
+    expect(intervalSeconds({ startTime: '2026-08-24T14:10:00Z' })).toBeUndefined();
+  });
+
+  it('interval そのものが欠けていても落ちない', () => {
+    expect(intervalSeconds(undefined)).toBeUndefined();
   });
 });

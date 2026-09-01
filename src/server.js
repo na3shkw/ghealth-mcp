@@ -2,7 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { getExercise, listExercises, listRestingHeartRate } from './health.js';
+import { getExercise, listExercises, listRestingHeartRate, listSleep } from './health.js';
 
 const server = new McpServer({ name: 'ghealth', version: '1.0.0' });
 
@@ -68,6 +68,26 @@ server.registerTool(
   async (args) => {
     try {
       return json(await listRestingHeartRate(args));
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'get_sleep',
+  {
+    title: '睡眠',
+    description:
+      '睡眠セッションを就寝時刻の昇順で返す。就寝・起床時刻、床上時間、睡眠時間、睡眠効率、ステージ別の分数を含む。就寝は日をまたぐため、期間の指定も localDate も起床日が基準。',
+    inputSchema: {
+      from: isoDate.optional().describe('開始日 (起床日のローカル日付)。省略時は to の 30 日前'),
+      to: isoDate.optional().describe('終了日 (起床日のローカル日付, この日を含む)。省略時は今日'),
+    },
+  },
+  async (args) => {
+    try {
+      return json(await listSleep(args));
     } catch (e) {
       return fail(e);
     }
