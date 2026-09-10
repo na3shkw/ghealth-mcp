@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import { OAuth2Client } from 'google-auth-library';
 
 const SCOPES = [
@@ -24,15 +25,24 @@ const client = new OAuth2Client({
 
 const { codeVerifier, codeChallenge } = await client.generateCodeVerifierAsync();
 
-console.log(
-  client.generateAuthUrl({
-    access_type: 'offline',
-    prompt: 'consent',
-    scope: SCOPES,
-    code_challenge_method: 'S256',
-    code_challenge: codeChallenge,
-  }),
-);
+const authUrl = client.generateAuthUrl({
+  access_type: 'offline',
+  prompt: 'consent',
+  scope: SCOPES,
+  code_challenge_method: 'S256',
+  code_challenge: codeChallenge,
+});
+
+console.log(authUrl);
+
+// BROWSER にパスが設定されていればそこで URL を開く
+if (process.env.BROWSER) {
+  try {
+    spawn(process.env.BROWSER, [authUrl], { detached: true, stdio: 'ignore' }).unref();
+  } catch (e) {
+    console.error('ブラウザの起動に失敗しました:', e.message);
+  }
+}
 
 const code = await new Promise((resolve, reject) => {
   server.on('request', (req, res) => {
