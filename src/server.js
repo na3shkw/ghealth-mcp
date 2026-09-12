@@ -2,7 +2,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { getExercise, listExercises, listRestingHeartRate, listSleep } from './health.js';
+import {
+  getExercise,
+  getExerciseMinutes,
+  listExercises,
+  listRestingHeartRate,
+  listSleep,
+} from './health.js';
 
 const server = new McpServer({ name: 'ghealth', version: '1.0.0' });
 
@@ -48,6 +54,30 @@ server.registerTool(
   async ({ id }) => {
     try {
       return json(await getExercise(id));
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  'get_exercise_minutes',
+  {
+    title: '運動の 1 分ごとの内訳',
+    description:
+      '運動 1 件を 1 分ごとに分解して返す。id は list_exercises / get_exercise が返す値。'
+      + 'get_exercise の平均ピッチや平均ペースは停止していた時間も均してしまうため、'
+      + '信号待ちと低速走行を見分けたいときはこちらを使う。'
+      + '距離・歩数は時計が記録した 60 秒区間のみを採用し、記録が無い分は 0 で埋める。'
+      + '心拍サンプルが無い分の avgBpm / maxBpm / minBpm は null で、0 ではない。'
+      + '停止判定やフェーズ分割はしていないので、解析は呼び出し側で行う。',
+    inputSchema: {
+      id: z.string().min(1).describe('運動の識別子'),
+    },
+  },
+  async ({ id }) => {
+    try {
+      return json(await getExerciseMinutes(id));
     } catch (e) {
       return fail(e);
     }

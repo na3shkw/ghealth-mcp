@@ -26,8 +26,13 @@ node src/fetch.js <path>       # 生 JSON を見る調査用。path は /v4/user
 - **整数が文字列で来る。** `num()` を通す。`Number('')` は 0 になるので空文字を弾いてから変換する
 - **duration は `"2400s"` / `"0.316s"` 形式。** `parseSeconds()` を通す
 - **ローカル日付は `startUtcOffset` を足して組み立てる。** UTC のまま日付を切ると深夜・早朝のランがずれる（`toLocalDate()`）
-- **`nextPageToken` を必ず辿る。** 指定しているページサイズは exercise 50、resting heart rate 100、sleep 25。上限だと確認できているのは sleep の 25 だけ
+- **`nextPageToken` を必ず辿る。** 指定しているページサイズは exercise 50、resting heart rate 100、sleep 25、distance / steps 100、heart-rate 1000。上限だと確認できているのは sleep の 25 だけ。heart-rate は数秒間隔で返るので 1 回の運動でも複数ページになる
 - **期間フィルタの対象フィールドはデータ型ごとに違う。** exercise は `interval.civil_start_time`、sleep は `interval.civil_end_time`（起床時刻）でしか絞れない。どちらも `to` を含めるため「翌日 0 時未満」（`T00:00:00` 付き）で切る。resting heart rate の `daily_resting_heart_rate.date` は日単位の値なので、時刻を付けずに「翌日未満」で切る
+- **Interval 型と Sample 型でフィルタの構文が違う。** distance / steps は `<型>.interval.start_time`、heart-rate は `heart_rate.sample_time.physical_time` で絞る
+- **distance / steps には複数のソースが混ざる。** 時計由来は区間長が 60 秒ちょうどで `dataSource.device` を持ち、スマホ由来は区間長がばらばらで `device` が無い。両方足すと二重計上になるので、「60 秒ちょうど かつ `device` あり」だけを採用する（`isWatchMinute()`）
+- **距離や歩数が 0 の区間はレコードごと返ってこない。** 値 0 のレコードは存在しないので、時間窓の側から分を並べて欠落を 0 で埋める。一方、心拍サンプルが無い分を 0 で埋めると安静時心拍と区別できなくなるため `null` にする
+- **運動の `activeDuration` はオートポーズ分が抜けている。** 時間窓を組むときは duration ではなく `interval.endTime` を使う
+- **`exercise.exerciseEvents` はあったり無かったりする。** 観測できたのは `START` / `STOP` の 2 件だけで、値は `interval` の開始・終了と一致する。ドキュメントにある pause / resume は実データでは確認できていないので、秒精度の停止検出には使えない
 - **`summary.minutesToFallAsleep` は常に 0。** Fitbit 側が埋めていない。入眠潜時は `stages` 冒頭の `AWAKE` 区間から算出する（`sleepOnsetMinutes()`）
 - 仕様の調査メモは `tmp/` にある（gitignore 済み）
 

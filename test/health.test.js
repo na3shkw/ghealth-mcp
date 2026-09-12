@@ -1,16 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   dataPointWithId,
+  distancePoint,
+  heartRatePoint,
   restingHeartRateDataPoint,
   restingHeartRateOn,
   runningDataPoint,
+  shortExerciseDataPoint,
   sleepStartingAt,
+  stepsPoint,
 } from './fixtures.js';
 
 const request = vi.fn();
 vi.mock('../src/auth-client.js', () => ({ createAuthClient: () => ({ request }) }));
 
-const { getExercise, listExercises, listRestingHeartRate, listSleep } =
+const { getExercise, getExerciseMinutes, listExercises, listRestingHeartRate, listSleep } =
   await import('../src/health.js');
 
 /** 呼び出し n 回目のリクエスト URL を URL オブジェクトで返す */
@@ -138,6 +142,19 @@ describe('listExercises', () => {
       });
 
       expect(await listExercises({ limit: 2 })).toHaveLength(2);
+    });
+
+    it('limit がページサイズをまたぐときは次のページも取りに行く', async () => {
+      const page = (prefix) => Array.from({ length: 50 }, (_, i) => dataPointWithId(`${prefix}${i}`));
+      request
+        .mockResolvedValueOnce({ data: { dataPoints: page('a'), nextPageToken: '2' } })
+        .mockResolvedValueOnce({ data: { dataPoints: page('b'), nextPageToken: '3' } });
+
+      const result = await listExercises({ limit: 60 });
+
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(urlOf(1).searchParams.get('pageToken')).toBe('2');
+      expect(result).toHaveLength(60);
     });
 
     it('limit 既定は 20', async () => {
@@ -375,5 +392,99 @@ describe('listSleep', () => {
   it('スコープ不足のエラーはそのまま伝播させる', async () => {
     request.mockRejectedValue(new Error('Required OAuth scope(s) are missing for this operation.'));
     await expect(listSleep({})).rejects.toThrow('Required OAuth scope');
+  });
+});
+
+describe('getExerciseMinutes', () => {
+  /** 運動 1 件 → distance / steps / heart-rate の順で 4 回リクエストが飛ぶ */
+  const mockFetches = ({ distance = [], steps = [], heartRate = [] } = {}) => {
+    request.mockImplementation(({ url }) => {
+      if (url.includes('/dataTypes/distance/')) return { data: { dataPoints: distance } };
+      if (url.includes('/dataTypes/steps/')) return { data: { dataPoints: steps } };
+      if (url.includes('/dataTypes/heart-rate/')) return { data: { dataPoints: heartRate } };
+      return { data: shortExerciseDataPoint };
+    });
+  };
+
+  /** データ型ごとのリクエスト URL を取り出す */
+  const urlFor = (fragment) =>
+    new URL(request.mock.calls.find(([a]) => a.url.includes(`/dataTypes/${fragment}/`))[0].url);
+
+  it('開始を切り下げ終了を切り上げた窓で絞る', async () => {
+    mockFetches();
+    await getExerciseMinutes('3333333333');
+
+    // 運動の interval は 09:00:30〜09:02:30
+    expect(urlFor('distance').searchParams.get('filter')).toBe(
+      'distance.interval.start_time>="2026-03-10T09:00:00Z" AND ' +
+        'distance.interval.start_time<"2026-03-10T09:03:00Z"',
+    );
+    expect(urlFor('steps').searchParams.get('filter')).toBe(
+      'steps.interval.start_time>="2026-03-10T09:00:00Z" AND ' +
+        'steps.interval.start_time<"2026-03-10T09:03:00Z"',
+    );
+  });
+
+  it('heart-rate は Sample 型なので sample_time で絞る', async () => {
+    mockFetches();
+    await getExerciseMinutes('3333333333');
+
+    expect(urlFor('heart-rate').searchParams.get('filter')).toBe(
+      'heart_rate.sample_time.physical_time>="2026-03-10T09:00:00Z" AND ' +
+        'heart_rate.sample_time.physical_time<"2026-03-10T09:03:00Z"',
+    );
+  });
+
+  it('取得した 3 種類を分ごとにまとめる', async () => {
+    mockFetches({
+      distance: [distancePoint('2026-03-10T09:01:00Z', 150000)],
+      steps: [stepsPoint('2026-03-10T09:01:00Z', 150)],
+      heartRate: [heartRatePoint('2026-03-10T09:01:30Z', 150)],
+    });
+
+    const rows = await getExerciseMinutes('3333333333');
+
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toMatchObject({ time: '18:01', distanceM: 150, steps: 150, avgBpm: 150 });
+    expect(rows[0]).toMatchObject({ distanceM: 0, steps: 0, avgBpm: null });
+  });
+
+  it('nextPageToken を辿って全ページ取得する', async () => {
+    request.mockImplementation(({ url }) => {
+      if (url.includes('/dataTypes/heart-rate/')) {
+        return url.includes('pageToken=TOKEN')
+          ? { data: { dataPoints: [heartRatePoint('2026-03-10T09:01:30Z', 160)] } }
+          : {
+              data: {
+                dataPoints: [heartRatePoint('2026-03-10T09:00:30Z', 140)],
+                nextPageToken: 'TOKEN',
+              },
+            };
+      }
+      if (url.includes('/dataTypes/exercise/')) return { data: shortExerciseDataPoint };
+      return { data: { dataPoints: [] } };
+    });
+
+    const rows = await getExerciseMinutes('3333333333');
+
+    expect(rows[0].avgBpm).toBe(140);
+    expect(rows[1].avgBpm).toBe(160);
+  });
+
+  it('窓にデータが無ければ 0 と null で埋めた分だけを返す', async () => {
+    mockFetches();
+    const rows = await getExerciseMinutes('3333333333');
+    expect(rows.map((r) => r.time)).toEqual(['18:00', '18:01', '18:02']);
+    expect(rows.every((r) => r.distanceM === 0 && r.avgBpm === null)).toBe(true);
+  });
+
+  it('interval が欠けていれば空配列を返す', async () => {
+    request.mockResolvedValue({ data: { name: 'users/1/dataTypes/exercise/dataPoints/9' } });
+    expect(await getExerciseMinutes('9')).toEqual([]);
+  });
+
+  it('スコープ不足のエラーはそのまま伝播させる', async () => {
+    request.mockRejectedValue(new Error('Required OAuth scope(s) are missing for this operation.'));
+    await expect(getExerciseMinutes('3333333333')).rejects.toThrow('Required OAuth scope');
   });
 });

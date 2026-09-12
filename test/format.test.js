@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   detail,
+  exerciseMinutes,
   intervalSeconds,
   formatDuration,
   formatPace,
@@ -15,10 +16,15 @@ import {
 } from '../src/health.js';
 import {
   classicSleepDataPoint,
+  distancePoint,
+  exerciseWithEvents,
+  heartRatePoint,
+  phoneSource,
   restingHeartRateDataPoint,
   runningDataPoint,
   sleepDataPoint,
   sparseDataPoint,
+  stepsPoint,
 } from './fixtures.js';
 
 describe('parseSeconds', () => {
@@ -389,5 +395,123 @@ describe('intervalSeconds', () => {
 
   it('interval そのものが欠けていても落ちない', () => {
     expect(intervalSeconds(undefined)).toBeUndefined();
+  });
+});
+
+describe('exerciseMinutes', () => {
+  const base = {
+    startTime: '2026-03-10T09:00:30Z',
+    endTime: '2026-03-10T09:02:30Z',
+    utcOffsetSeconds: 32400,
+  };
+
+  it('開始を切り下げ終了を切り上げた窓の分をすべて返す', () => {
+    const rows = exerciseMinutes(base);
+    expect(rows.map((r) => r.time)).toEqual(['18:00', '18:01', '18:02']);
+  });
+
+  it('距離と歩数から換算値を組み立てる', () => {
+    const [row] = exerciseMinutes({
+      ...base,
+      endTime: '2026-03-10T09:01:00Z',
+      distancePoints: [distancePoint('2026-03-10T09:00:00Z', 150000)],
+      stepsPoints: [stepsPoint('2026-03-10T09:00:00Z', 150)],
+    });
+
+    expect(row).toMatchObject({
+      time: '18:00',
+      distanceM: 150,
+      steps: 150,
+      // 60 秒区間なのでピッチは歩数と同値
+      cadenceSpm: 150,
+      paceSecPerKm: 400,
+      strideCm: 100,
+    });
+  });
+
+  it('レコードが無い分は距離・歩数を 0 で埋める', () => {
+    const rows = exerciseMinutes({
+      ...base,
+      distancePoints: [distancePoint('2026-03-10T09:01:00Z', 100000)],
+      stepsPoints: [stepsPoint('2026-03-10T09:01:00Z', 100)],
+    });
+
+    expect(rows[0]).toMatchObject({ distanceM: 0, steps: 0, cadenceSpm: 0 });
+  });
+
+  it('距離 0 のペースと歩数 0 のストライドは null にする', () => {
+    const [row] = exerciseMinutes(base);
+    expect(row.paceSecPerKm).toBeNull();
+    expect(row.strideCm).toBeNull();
+  });
+
+  it('60 秒ちょうどでない区間は二重計上を避けて捨てる', () => {
+    const rows = exerciseMinutes({
+      ...base,
+      distancePoints: [
+        distancePoint('2026-03-10T09:00:00Z', 100000),
+        distancePoint('2026-03-10T09:00:00Z', 90000, { endTime: '2026-03-10T09:00:20Z' }),
+      ],
+      stepsPoints: [
+        stepsPoint('2026-03-10T09:00:00Z', 100),
+        stepsPoint('2026-03-10T09:00:00Z', 90, { endTime: '2026-03-10T09:09:38Z' }),
+      ],
+    });
+
+    expect(rows[0]).toMatchObject({ distanceM: 100, steps: 100 });
+  });
+
+  it('dataSource.device が無い区間は二重計上を避けて捨てる', () => {
+    const rows = exerciseMinutes({
+      ...base,
+      distancePoints: [
+        distancePoint('2026-03-10T09:00:00Z', 100000),
+        distancePoint('2026-03-10T09:00:00Z', 90000, { source: phoneSource }),
+      ],
+      stepsPoints: [
+        stepsPoint('2026-03-10T09:00:00Z', 100),
+        stepsPoint('2026-03-10T09:00:00Z', 90, { source: phoneSource }),
+      ],
+    });
+
+    expect(rows[0]).toMatchObject({ distanceM: 100, steps: 100 });
+  });
+
+  it('心拍サンプルを分のバケットに振り分けて集計する', () => {
+    const rows = exerciseMinutes({
+      ...base,
+      heartRatePoints: [
+        heartRatePoint('2026-03-10T09:00:05Z', 140),
+        heartRatePoint('2026-03-10T09:00:55Z', 150),
+        heartRatePoint('2026-03-10T09:01:05Z', 160),
+      ],
+    });
+
+    expect(rows[0]).toMatchObject({ avgBpm: 145, maxBpm: 150, minBpm: 140 });
+    expect(rows[1]).toMatchObject({ avgBpm: 160, maxBpm: 160, minBpm: 160 });
+  });
+
+  it('心拍サンプルが無い分は 0 で埋めず null にする', () => {
+    const [row] = exerciseMinutes(base);
+    expect(row.avgBpm).toBeNull();
+    expect(row.maxBpm).toBeNull();
+    expect(row.minBpm).toBeNull();
+  });
+
+  it('時刻が壊れていれば空配列を返す', () => {
+    expect(exerciseMinutes({ startTime: undefined, endTime: undefined })).toEqual([]);
+  });
+});
+
+describe('detail の exerciseEvents', () => {
+  it('開始・停止イベントをローカル時刻で通す', () => {
+    expect(detail(exerciseWithEvents).events).toEqual([
+      { type: 'START', time: '2026-03-10T18:45:00+09:00' },
+      { type: 'STOP', time: '2026-03-10T19:25:00+09:00' },
+    ]);
+  });
+
+  it('イベントが無ければキーごと省く', () => {
+    expect(detail(runningDataPoint).events).toBeUndefined();
   });
 });

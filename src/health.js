@@ -121,9 +121,17 @@ export function detail(dataPoint) {
   const oscillationMm = num(mob.avgVerticalOscillationMillimeters);
   const groundContactS = parseSeconds(mob.avgGroundContactTimeDuration);
 
+  // 一時停止・再開のイベント区間。観測できたのは START / STOP だけだが、
+  // pause/resume が入る余地があるのでそのまま通す
+  const events = (ex.exerciseEvents ?? []).map((e) => ({
+    type: e.exerciseEventType,
+    time: toLocalDate(e.eventTime, e.eventUtcOffset),
+  }));
+
   return {
     ...summarize(dataPoint),
     splits,
+    events: events.length > 0 ? events : undefined,
     steps: num(m.steps),
     cadence: num(mob.avgCadenceStepsPerMinute),
     strideLengthCm: strideMm == null ? undefined : round(strideMm / 10, 1),
@@ -250,77 +258,78 @@ function shiftDays(isoDay, days) {
   return isoDate(d);
 }
 
-export async function listExercises({ from, to, limit = 20 } = {}) {
-  const today = isoDate(new Date());
-  const toDay = to ?? today;
-  const fromDay = from ?? shiftDays(toDay, -30);
+/** from / to の既定値を埋める。to は今日、from は to の 30 日前 */
+function resolveRange({ from, to } = {}) {
+  const toDay = to ?? isoDate(new Date());
+  return { fromDay: from ?? shiftDays(toDay, -30), toDay };
+}
 
-  // civil_start_time はローカル時刻。to を含めるため翌日 0 時未満で切る
-  const filter =
-    `exercise.interval.civil_start_time>="${fromDay}T00:00:00" AND ` +
-    `exercise.interval.civil_start_time<"${shiftDays(toDay, 1)}T00:00:00"`;
-
+/**
+ * filter に合う dataPoints を nextPageToken を辿って集める。
+ * limit を渡すと、必要数に達した時点で残りのページを取りに行かない。
+ */
+async function listDataPoints(dataType, filter, pageSize, limit = Infinity) {
   const results = [];
   let pageToken;
 
   do {
-    const params = new URLSearchParams({ filter, pageSize: '50' });
+    const params = new URLSearchParams({ filter, pageSize: String(pageSize) });
     if (pageToken) params.set('pageToken', pageToken);
 
     const { data } = await auth().request({
-      url: `${BASE}/dataTypes/exercise/dataPoints?${params}`,
+      url: `${BASE}/dataTypes/${dataType}/dataPoints?${params}`,
     });
 
-    for (const dp of data.dataPoints ?? []) {
-      results.push(summarize(dp));
-      if (results.length >= limit) return results;
-    }
+    results.push(...(data.dataPoints ?? []));
+    if (results.length >= limit) return results.slice(0, limit);
     pageToken = data.nextPageToken;
   } while (pageToken);
 
   return results;
 }
 
-export async function getExercise(id) {
+/** dataPoint 1 件を id で取る */
+async function getDataPoint(dataType, id) {
   const { data } = await auth().request({
-    url: `${BASE}/dataTypes/exercise/dataPoints/${encodeURIComponent(id)}`,
+    url: `${BASE}/dataTypes/${dataType}/dataPoints/${encodeURIComponent(id)}`,
   });
-  return detail(data);
+  return data;
+}
+
+export async function listExercises({ from, to, limit = 20 } = {}) {
+  const { fromDay, toDay } = resolveRange({ from, to });
+
+  // civil_start_time はローカル時刻。to を含めるため翌日 0 時未満で切る
+  const filter =
+    `exercise.interval.civil_start_time>="${fromDay}T00:00:00" AND ` +
+    `exercise.interval.civil_start_time<"${shiftDays(toDay, 1)}T00:00:00"`;
+
+  const points = await listDataPoints('exercise', filter, 50, limit);
+  return points.map(summarize);
+}
+
+export async function getExercise(id) {
+  return detail(await getDataPoint('exercise', id));
 }
 
 export async function listRestingHeartRate({ from, to } = {}) {
-  const today = isoDate(new Date());
-  const toDay = to ?? today;
-  const fromDay = from ?? shiftDays(toDay, -30);
+  const { fromDay, toDay } = resolveRange({ from, to });
 
   // date は日単位の値。to を含めるため翌日未満で切る
   const filter =
     `daily_resting_heart_rate.date>="${fromDay}" AND ` +
     `daily_resting_heart_rate.date<"${shiftDays(toDay, 1)}"`;
 
-  const results = [];
-  let pageToken;
-
-  do {
-    const params = new URLSearchParams({ filter, pageSize: '100' });
-    if (pageToken) params.set('pageToken', pageToken);
-
-    const { data } = await auth().request({
-      url: `${BASE}/dataTypes/daily-resting-heart-rate/dataPoints?${params}`,
-    });
-
-    for (const dp of data.dataPoints ?? []) results.push(restingHeartRate(dp));
-    pageToken = data.nextPageToken;
-  } while (pageToken);
+  const points = await listDataPoints('daily-resting-heart-rate', filter, 100);
 
   // 推移を追いやすいよう日付の昇順で返す
-  return results.sort((a, b) => (a.localDate ?? '').localeCompare(b.localDate ?? ''));
+  return points
+    .map(restingHeartRate)
+    .sort((a, b) => (a.localDate ?? '').localeCompare(b.localDate ?? ''));
 }
 
 export async function listSleep({ from, to } = {}) {
-  const today = isoDate(new Date());
-  const toDay = to ?? today;
-  const fromDay = from ?? shiftDays(toDay, -30);
+  const { fromDay, toDay } = resolveRange({ from, to });
 
   // sleep は civil_end_time（起床時刻のローカル時刻）でしか絞り込めない。
   // localDate を起床日にしてあるのと同じ基準になる。to を含めるため翌日 0 時未満で切る
@@ -328,22 +337,138 @@ export async function listSleep({ from, to } = {}) {
     `sleep.interval.civil_end_time>="${fromDay}T00:00:00" AND ` +
     `sleep.interval.civil_end_time<"${shiftDays(toDay, 1)}T00:00:00"`;
 
-  const results = [];
-  let pageToken;
-
-  do {
-    // sleep はページサイズの上限が 25
-    const params = new URLSearchParams({ filter, pageSize: '25' });
-    if (pageToken) params.set('pageToken', pageToken);
-
-    const { data } = await auth().request({
-      url: `${BASE}/dataTypes/sleep/dataPoints?${params}`,
-    });
-
-    for (const dp of data.dataPoints ?? []) results.push(sleepSession(dp));
-    pageToken = data.nextPageToken;
-  } while (pageToken);
+  // sleep はページサイズの上限が 25
+  const points = await listDataPoints('sleep', filter, 25);
 
   // 推移を追いやすいよう就寝時刻の昇順で返す
-  return results.sort((a, b) => (a.bedtime ?? '').localeCompare(b.bedtime ?? ''));
+  return points
+    .map(sleepSession)
+    .sort((a, b) => (a.bedtime ?? '').localeCompare(b.bedtime ?? ''));
+}
+
+const MINUTE_MS = 60_000;
+
+/** 時刻を分単位に切り下げた epoch ミリ秒 */
+const floorMinute = (time) => Math.floor(new Date(time).getTime() / MINUTE_MS) * MINUTE_MS;
+
+/** 時刻を分単位に切り上げた epoch ミリ秒 */
+const ceilMinute = (time) => Math.ceil(new Date(time).getTime() / MINUTE_MS) * MINUTE_MS;
+
+/** epoch ミリ秒に UTC オフセットを足して `HH:MM` を組み立てる */
+function toLocalHm(epochMs, offsetSeconds) {
+  return new Date(epochMs + offsetSeconds * 1000).toISOString().slice(11, 16);
+}
+
+/**
+ * Interval 型（distance / steps）のうち、時計が記録した 1 分ちょうどの区間だけを残す。
+ * 同じ時間帯にスマホ側のカウントも混ざって返ってくる。そちらは区間長がばらばらで
+ * dataSource.device を持たず、足すと二重計上になる。
+ */
+function isWatchMinute(interval, dataSource) {
+  return intervalSeconds(interval) === 60 && dataSource?.device != null;
+}
+
+export function exerciseMinutes({
+  startTime,
+  endTime,
+  utcOffsetSeconds = 0,
+  distancePoints = [],
+  stepsPoints = [],
+  heartRatePoints = [],
+}) {
+  const windowStart = floorMinute(startTime);
+  const windowEnd = ceilMinute(endTime);
+  if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd)) return [];
+
+  // 距離が 0 の分はレコードごと返ってこないので、窓の全分を 0 で用意してから埋める
+  const distanceMm = new Map();
+  const steps = new Map();
+  const bpm = new Map();
+
+  for (const dp of distancePoints) {
+    const d = dp.distance ?? {};
+    if (!isWatchMinute(d.interval, dp.dataSource)) continue;
+    const key = floorMinute(d.interval.startTime);
+    distanceMm.set(key, (distanceMm.get(key) ?? 0) + (num(d.millimeters) ?? 0));
+  }
+
+  for (const dp of stepsPoints) {
+    const s = dp.steps ?? {};
+    if (!isWatchMinute(s.interval, dp.dataSource)) continue;
+    const key = floorMinute(s.interval.startTime);
+    steps.set(key, (steps.get(key) ?? 0) + (num(s.count) ?? 0));
+  }
+
+  for (const dp of heartRatePoints) {
+    const hr = dp.heartRate ?? {};
+    const value = num(hr.beatsPerMinute);
+    const time = hr.sampleTime?.physicalTime;
+    if (value == null || !time) continue;
+    const key = floorMinute(time);
+    if (!Number.isFinite(key)) continue;
+    if (!bpm.has(key)) bpm.set(key, []);
+    bpm.get(key).push(value);
+  }
+
+  const rows = [];
+  for (let t = windowStart; t < windowEnd; t += MINUTE_MS) {
+    const mm = distanceMm.get(t) ?? 0;
+    const step = steps.get(t) ?? 0;
+    const samples = bpm.get(t);
+    const distanceM = mm / 1000;
+
+    rows.push({
+      time: toLocalHm(t, utcOffsetSeconds),
+      distanceM: round(distanceM, 1),
+      steps: step,
+      // 60 秒区間なので歩数がそのままピッチになる
+      cadenceSpm: step,
+      paceSecPerKm: distanceM === 0 ? null : round((1000 / distanceM) * 60, 0),
+      strideCm: step === 0 ? null : round((distanceM / step) * 100, 1),
+      // 心拍サンプルが 1 件も無い分は 0 で埋めず null にする
+      avgBpm: samples ? round(samples.reduce((a, b) => a + b, 0) / samples.length, 1) : null,
+      maxBpm: samples ? Math.max(...samples) : null,
+      minBpm: samples ? Math.min(...samples) : null,
+    });
+  }
+
+  return rows;
+}
+
+const toRfc3339 = (epochMs) => `${new Date(epochMs).toISOString().slice(0, 19)}Z`;
+
+export async function getExerciseMinutes(id) {
+  const data = await getDataPoint('exercise', id);
+
+  const interval = data.exercise?.interval ?? {};
+  // activeDuration はオートポーズ分が抜けているので、窓は終了時刻から組む
+  const windowStart = floorMinute(interval.startTime);
+  const windowEnd = ceilMinute(interval.endTime);
+  if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd)) return [];
+  const from = toRfc3339(windowStart);
+  const to = toRfc3339(windowEnd);
+
+  // Interval 型は interval.start_time、Sample 型の heart-rate は sample_time.physical_time で絞る
+  const intervalFilter = (name) =>
+    `${name}.interval.start_time>="${from}" AND ${name}.interval.start_time<"${to}"`;
+
+  const [distancePoints, stepsPoints, heartRatePoints] = await Promise.all([
+    listDataPoints('distance', intervalFilter('distance'), 100),
+    listDataPoints('steps', intervalFilter('steps'), 100),
+    listDataPoints(
+      'heart-rate',
+      `heart_rate.sample_time.physical_time>="${from}" AND ` +
+        `heart_rate.sample_time.physical_time<"${to}"`,
+      1000,
+    ),
+  ]);
+
+  return exerciseMinutes({
+    startTime: interval.startTime,
+    endTime: interval.endTime,
+    utcOffsetSeconds: parseSeconds(interval.startUtcOffset) ?? 0,
+    distancePoints,
+    stepsPoints,
+    heartRatePoints,
+  });
 }

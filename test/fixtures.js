@@ -235,3 +235,87 @@ export const sleepStartingAt = (startTime, id = '1') => ({
   name: `users/1234567890/dataTypes/sleep/dataPoints/${id}`,
   sleep: { ...sleepDataPoint.sleep, interval: { ...sleepDataPoint.sleep.interval, startTime } },
 });
+
+const WATCH = {
+  recordingMethod: 'PASSIVELY_MEASURED',
+  device: { displayName: 'Watch' },
+  platform: 'FITBIT',
+};
+
+/** dataSource.device を持たないスマホ側のカウント。足すと二重計上になる */
+const PHONE = { recordingMethod: 'PASSIVELY_MEASURED', platform: 'FITBIT' };
+
+const minuteInterval = (startTime, endTime) => ({
+  startTime,
+  startUtcOffset: '32400s',
+  endTime,
+  endUtcOffset: '32400s',
+});
+
+/** distance の 1 分区間。既定は時計由来の 60 秒ちょうど */
+export const distancePoint = (startTime, millimeters, { endTime, source = WATCH } = {}) => ({
+  dataSource: source,
+  distance: {
+    interval: minuteInterval(startTime, endTime ?? addMinute(startTime)),
+    millimeters: String(millimeters),
+  },
+});
+
+/** steps の 1 分区間。既定は時計由来の 60 秒ちょうど */
+export const stepsPoint = (startTime, count, { endTime, source = WATCH } = {}) => ({
+  dataSource: source,
+  steps: {
+    interval: minuteInterval(startTime, endTime ?? addMinute(startTime)),
+    count: String(count),
+  },
+});
+
+/** heart-rate は Interval 型ではなく Sample 型で、時刻を 1 点だけ持つ */
+export const heartRatePoint = (physicalTime, beatsPerMinute) => ({
+  dataSource: WATCH,
+  heartRate: {
+    sampleTime: { physicalTime, utcOffset: '32400s' },
+    beatsPerMinute: String(beatsPerMinute),
+  },
+});
+
+export const phoneSource = PHONE;
+
+function addMinute(startTime) {
+  return new Date(new Date(startTime).getTime() + 60_000).toISOString().replace('.000', '');
+}
+
+/** exerciseEvents を持つ運動。手動の開始・停止操作が記録されている */
+export const exerciseWithEvents = {
+  name: 'users/1234567890/dataTypes/exercise/dataPoints/2222222222',
+  exercise: {
+    interval: {
+      startTime: '2026-03-10T09:45:00Z',
+      startUtcOffset: '32400s',
+      endTime: '2026-03-10T10:25:00Z',
+      endUtcOffset: '32400s',
+    },
+    exerciseType: 'WALKING',
+    activeDuration: '2400s',
+    exerciseEvents: [
+      { eventTime: '2026-03-10T09:45:00Z', eventUtcOffset: '32400s', exerciseEventType: 'START' },
+      { eventTime: '2026-03-10T10:25:00Z', eventUtcOffset: '32400s', exerciseEventType: 'STOP' },
+    ],
+  },
+};
+
+/** 1 分内訳の取得元になる運動。窓は 18:00〜18:03 (ローカル) の 3 分 */
+export const shortExerciseDataPoint = {
+  name: 'users/1234567890/dataTypes/exercise/dataPoints/3333333333',
+  exercise: {
+    interval: {
+      startTime: '2026-03-10T09:00:30Z',
+      startUtcOffset: '32400s',
+      endTime: '2026-03-10T09:02:30Z',
+      endUtcOffset: '32400s',
+    },
+    exerciseType: 'RUNNING',
+    // オートポーズ分が抜けるので、窓の算出には使わない
+    activeDuration: '90s',
+  },
+};

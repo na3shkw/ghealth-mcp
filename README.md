@@ -63,6 +63,28 @@ Google Health API に記録された運動・安静時心拍数・睡眠のデ�
 
 一覧の全項目に加えて、`splits`（距離ごとのラップ）、`steps`, `cadence`, `strideLengthCm`, `verticalOscillationCm`, `verticalRatio`, `groundContactTimeMs`, `elevationGainM`, `activeZoneMinutes`, `heartRateZones`（light / moderate / vigorous / peak の分数）。
 
+`events` は記録された開始・停止の操作（`exerciseEvents`）で、入っているときだけ返す。
+
+### `get_exercise_minutes`
+
+運動 1 件を 1 分ごとに分解して返す。`id` は `list_exercises` / `get_exercise` が返す値。
+
+`get_exercise` のサマリーは停止していた時間も均してしまうため、平均ピッチが実際には出していないピッチになる。信号待ちで止まっていた時間と遅く走っていた時間を見分けたいときにこちらを使う。
+
+| 出力 | 説明 |
+| --- | --- |
+| `time` | ローカル時刻（`HH:MM`） |
+| `distanceM` | その 1 分の移動距離（メートル） |
+| `steps` | その 1 分の歩数 |
+| `cadenceSpm` | ピッチ。60 秒区間なので `steps` と同値 |
+| `paceSecPerKm` | その 1 分のペース（秒/km）。`distanceM` が 0 なら `null` |
+| `strideCm` | ストライド。`steps` が 0 なら `null` |
+| `avgBpm` / `maxBpm` / `minBpm` | その 1 分の心拍。サンプルが 1 件も無ければ `null` |
+
+窓は運動の開始時刻を分単位に切り下げ、終了時刻を切り上げた範囲。距離が 0 の分はレコードごと返ってこないので `distanceM` / `steps` は 0 で埋めるが、心拍は 0 で埋めず `null` にする。
+
+停止判定やフェーズ分割はサーバー側でしない。素のデータと自明な換算だけを返し、解析は呼び出し側に任せる。
+
 ### `get_resting_heart_rate`
 
 日ごとの安静時心拍数を日付の昇順で返す。入力は `from` / `to`。予備心拍数（最大心拍数 − 安静時心拍数）を出して心拍ゾーンを評価するときに使う。
