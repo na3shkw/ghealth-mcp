@@ -91,7 +91,7 @@ export const restingHeartRateOn = (year, month, day, bpm) => ({
 /**
  * ステージ付きの睡眠 1 件。実 API のレスポンス構造に合わせたダミー値。
  * stages と shortAwakenings は実レスポンスと同じ件数だけ並べてある。
- * 就寝 00:30〜起床 07:30 (JST)。分は int64 なので文字列で来る。
+ * 就寝 23:30〜翌 07:30 (JST) で日をまたぐ。分は int64 なので文字列で来る。
  */
 export const sleepDataPoint = {
   name: 'users/1234567890/dataTypes/sleep/dataPoints/3333333333',
@@ -102,7 +102,7 @@ export const sleepDataPoint = {
   },
   sleep: {
     interval: {
-      startTime: '2026-03-14T15:30:00Z',
+      startTime: '2026-03-14T14:30:00Z',
       startUtcOffset: '32400s',
       endTime: '2026-03-14T22:30:00Z',
       endUtcOffset: '32400s',
@@ -110,9 +110,9 @@ export const sleepDataPoint = {
     type: 'STAGES',
     stages: [
       {
-        startTime: '2026-03-14T15:30:00Z',
+        startTime: '2026-03-14T14:30:00Z',
         startUtcOffset: '32400s',
-        endTime: '2026-03-14T15:45:00Z',
+        endTime: '2026-03-14T14:45:00Z',
         endUtcOffset: '32400s',
         type: 'AWAKE',
       },
@@ -147,8 +147,10 @@ export const sleepDataPoint = {
     ],
     metadata: { stagesStatus: 'SUCCEEDED', processed: true, mainSleep: true },
     summary: {
-      minutesInSleepPeriod: '420',
-      minutesAfterWakeUp: '0',
+      // interval の長さ (8h) とはわざと食い違わせてある。実 API の
+      // minutesInSleepPeriod は minutesAfterWakeUp を含まないため一致しない
+      minutesInSleepPeriod: '450',
+      minutesAfterWakeUp: '30',
       minutesToFallAsleep: '0',
       minutesAsleep: '390',
       minutesAwake: '30',

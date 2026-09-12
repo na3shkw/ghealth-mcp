@@ -251,7 +251,7 @@ describe('sleepSession', () => {
   it('就寝・起床のローカル時刻を組む', () => {
     const s = sleepSession(sleepDataPoint);
 
-    expect(s.bedtime).toBe('2026-03-15T00:30:00+09:00');
+    expect(s.bedtime).toBe('2026-03-14T23:30:00+09:00');
     expect(s.wakeTime).toBe('2026-03-15T07:30:00+09:00');
   });
 
@@ -262,12 +262,14 @@ describe('sleepSession', () => {
   it('床上時間と睡眠時間は summary の分数から整形する', () => {
     const s = sleepSession(sleepDataPoint);
 
-    expect(s.timeInBed).toBe('7:00:00');
+    // interval の長さは 8:00:00。minutesInSleepPeriod の 450 分を使う
+    expect(s.timeInBed).toBe('7:30:00');
     expect(s.timeAsleep).toBe('6:30:00');
   });
 
   it('睡眠効率は minutesAsleep / minutesInSleepPeriod', () => {
-    expect(sleepSession(sleepDataPoint).efficiencyPercent).toBe(92.9);
+    // 390 / 450。interval の長さ (480 分) で割ると 81.3 になる
+    expect(sleepSession(sleepDataPoint).efficiencyPercent).toBe(86.7);
   });
 
   it('ステージ別の分数を summary.stagesSummary から取る', () => {
