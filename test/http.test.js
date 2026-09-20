@@ -11,6 +11,33 @@ const app = (await import('../src/index.js')).default;
 
 const TOKEN = 'test-token-not-a-real-secret';
 
+/** GHEALTH_MCP_TOKEN を退避・復元する。実行環境に設定されていても壊さないため */
+function useToken(value = TOKEN) {
+  let saved;
+  beforeEach(() => {
+    saved = process.env.GHEALTH_MCP_TOKEN;
+    process.env.GHEALTH_MCP_TOKEN = value;
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env.GHEALTH_MCP_TOKEN;
+    else process.env.GHEALTH_MCP_TOKEN = saved;
+  });
+}
+
+/** 応答は SSE か JSON のどちらか。JSON-RPC のエンベロープまで解いて返す */
+async function body(res) {
+  const text = await res.text();
+  const data = text.startsWith('{')
+    ? text
+    : text
+        .split('\n')
+        .find((line) => line.startsWith('data:'))
+        ?.slice('data:'.length);
+
+  expect(data, `応答から JSON を取り出せない: ${text}`).toBeDefined();
+  return JSON.parse(data);
+}
+
 const rpc = (method, params = {}, headers = {}) =>
   app.request('/mcp', {
     method: 'POST',
@@ -34,12 +61,7 @@ const initialize = (headers) =>
   );
 
 describe('/mcp の認証', () => {
-  beforeEach(() => {
-    process.env.GHEALTH_MCP_TOKEN = TOKEN;
-  });
-  afterEach(() => {
-    delete process.env.GHEALTH_MCP_TOKEN;
-  });
+  useToken();
 
   it('x-api-key が無ければ 401 を返す', async () => {
     const res = await initialize();
@@ -56,11 +78,16 @@ describe('/mcp の認証', () => {
     expect(res.headers.get('www-authenticate')).toBeNull();
   });
 
-  it('環境変数が未設定なら、空のヘッダーでも 401 を返す', async () => {
-    delete process.env.GHEALTH_MCP_TOKEN;
-    const res = await initialize({ 'x-api-key': '' });
-    expect(res.status).toBe(401);
-  });
+  // 設定漏れで無認証公開にならないことを見ている。空文字だけだと
+  // 「キーが空だから 401」でも通ってしまうので、非空の値を必ず含める
+  it.each([['anything'], [''], [TOKEN]])(
+    '環境変数が未設定なら、x-api-key が %j でも 401 を返す',
+    async (given) => {
+      delete process.env.GHEALTH_MCP_TOKEN;
+      const res = await initialize({ 'x-api-key': given });
+      expect(res.status).toBe(401);
+    },
+  );
 
   it('x-api-key が正しければ initialize に応答する', async () => {
     const res = await initialize({ 'x-api-key': TOKEN });
@@ -69,31 +96,27 @@ describe('/mcp の認証', () => {
 });
 
 describe('/mcp のツール', () => {
+  useToken();
   beforeEach(() => {
-    process.env.GHEALTH_MCP_TOKEN = TOKEN;
     request.mockReset();
   });
-  afterEach(() => {
-    delete process.env.GHEALTH_MCP_TOKEN;
-  });
 
-  it('5 つのツールが tools/list に載る', async () => {
+  it('tools/list に載るのはこの 5 つだけ', async () => {
     const res = await rpc('tools/list', {}, { 'x-api-key': TOKEN });
     expect(res.status).toBe(200);
 
-    const text = await res.text();
-    for (const name of [
+    // 意図せず増えたツールが公開されたままにならないよう、件数と順序ごと固定する
+    const { result } = await body(res);
+    expect(result.tools.map((t) => t.name)).toEqual([
       'list_exercises',
       'get_exercise',
       'get_exercise_minutes',
       'get_resting_heart_rate',
       'get_sleep',
-    ]) {
-      expect(text).toContain(`"${name}"`);
-    }
+    ]);
   });
 
-  it('tools/call で整形済みの結果を返す', async () => {
+  it('tools/call は整形済みの結果を JSON テキストで返す', async () => {
     request.mockResolvedValue({ data: { dataPoints: [] } });
 
     const res = await rpc(
@@ -103,7 +126,11 @@ describe('/mcp のツール', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain('[]');
+    const { result } = await body(res);
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe('text');
+    expect(JSON.parse(result.content[0].text)).toEqual([]);
     expect(request).toHaveBeenCalled();
   });
 
@@ -117,19 +144,14 @@ describe('/mcp のツール', () => {
     );
 
     expect(res.status).toBe(200);
-    const text = await res.text();
-    expect(text).toContain('ダミーの失敗');
-    expect(text).toContain('isError');
+    const { result } = await body(res);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('ダミーの失敗');
   });
 });
 
 describe('/mcp の subscriptions/listen', () => {
-  beforeEach(() => {
-    process.env.GHEALTH_MCP_TOKEN = TOKEN;
-  });
-  afterEach(() => {
-    delete process.env.GHEALTH_MCP_TOKEN;
-  });
+  useToken();
 
   // 2026-07-28 はリクエストごとに _meta のエンベロープと Mcp-Method ヘッダーを要求する
   const listen = () =>
@@ -202,15 +224,22 @@ describe('/mcp の subscriptions/listen', () => {
     expect(closed, 'ストリームが閉じずに開いたままになっている').not.toBeNull();
     expect(closed).toContain('Subscription limit reached');
   });
+
+  it('想定どおりの拒否なので、エラーとして記録しない', async () => {
+    // src/index.js の onerror は SDK の英語メッセージで拒否を見分けている。
+    // 文言が変わるとログに出続けるだけで壊れないので、ここで落ちるようにしておく
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await (await listen()).text();
+      expect(spy, `記録された内容: ${spy.mock.calls.join(' / ')}`).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe('/mcp の serverInfo', () => {
-  beforeEach(() => {
-    process.env.GHEALTH_MCP_TOKEN = TOKEN;
-  });
-  afterEach(() => {
-    delete process.env.GHEALTH_MCP_TOKEN;
-  });
+  useToken();
 
   it('initialize の応答にアイコンが含まれる', async () => {
     const res = await initialize({ 'x-api-key': TOKEN });

@@ -15,6 +15,7 @@ const request = vi.fn();
 vi.mock('../src/auth-client.js', () => ({ createAuthClient: () => ({ request }) }));
 
 const {
+  defaultTimeZone,
   getExercise,
   getExerciseMinutes,
   listExercises,
@@ -536,4 +537,46 @@ describe('既定の to は日本時間の今日', () => {
     // 日本時間では 8/26。to を含めるため翌日 0 時未満で切られる
     expect(urlOf().searchParams.get('filter')).toContain('<"2026-08-27T00:00:00"');
   });
+
+  it('GHEALTH_TZ を設定すると、その地域の今日までを対象にする', async () => {
+    const saved = process.env.GHEALTH_TZ;
+    process.env.GHEALTH_TZ = 'America/New_York';
+    try {
+      // 日本時間では 8/26 だが、ニューヨークではまだ 8/25
+      vi.setSystemTime(new Date('2026-08-25T16:00:00Z'));
+      await listExercises({});
+
+      expect(urlOf().searchParams.get('filter')).toContain('<"2026-08-26T00:00:00"');
+    } finally {
+      if (saved === undefined) delete process.env.GHEALTH_TZ;
+      else process.env.GHEALTH_TZ = saved;
+    }
+  });
+});
+
+describe('defaultTimeZone', () => {
+  it('GHEALTH_TZ が無ければ日本時間', () => {
+    expect(defaultTimeZone({})).toBe('Asia/Tokyo');
+  });
+
+  it('空文字も未設定として扱う', () => {
+    expect(defaultTimeZone({ GHEALTH_TZ: '' })).toBe('Asia/Tokyo');
+  });
+
+  // Intl が受け付けるものはそのまま通す。別名 (JST → Asia/Tokyo) や
+  // 固定オフセット (+09:00) も解決できるので弾く理由がない
+  it.each([['America/New_York'], ['UTC'], ['JST'], ['+09:00']])(
+    'Intl が解決できる %j はそのまま使う',
+    (zone) => {
+      expect(defaultTimeZone({ GHEALTH_TZ: zone })).toBe(zone);
+    },
+  );
+
+  it.each([['Asia/Nowhere'], ['Tokyo'], ['Asia/Tokyo '], ['9']])(
+    '解決できない %j は、変数名と値を挙げて失敗する',
+    (zone) => {
+      expect(() => defaultTimeZone({ GHEALTH_TZ: zone })).toThrow(/GHEALTH_TZ/);
+      expect(() => defaultTimeZone({ GHEALTH_TZ: zone })).toThrow(zone);
+    },
+  );
 });

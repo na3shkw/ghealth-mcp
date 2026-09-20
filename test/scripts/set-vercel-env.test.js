@@ -34,7 +34,6 @@ function makeDeps(overrides = {}) {
 
   const deps = {
     root: ROOT,
-    env: {},
     readFile: (file) => {
       if (!(file in files)) {
         const e = new Error(`ENOENT: ${file}`);
@@ -123,25 +122,34 @@ describe('vercelArgs', () => {
     expect(vercelArgs('FOO', opts({ env: 'preview,production' }))).toContain('preview,production');
   });
 
-  it('値は引数に含めない（標準入力で渡すため）', () => {
-    expect(vercelArgs('FOO', opts())).not.toContain('dummy-secret');
+  it('値を受け取る引数を持たない（標準入力で渡すため）', () => {
+    // 引数は (name, opts) の 2 つだけ
+    expect(vercelArgs).toHaveLength(2);
   });
 });
 
 describe('credentialPaths', () => {
-  it('環境変数が無ければリポジトリ直下を見る', () => {
-    expect(credentialPaths({}, ROOT)).toEqual({
+  it('リポジトリ直下の決め打ちを返す', () => {
+    expect(credentialPaths(ROOT)).toEqual({
       clientSecretPath: CLIENT_PATH,
       tokenPath: TOKEN_PATH,
     });
   });
 
-  it('環境変数でパスを上書きできる', () => {
-    const paths = credentialPaths(
-      { GHEALTH_CLIENT_SECRET: '/tmp/c.json', GHEALTH_TOKEN: '/tmp/t.json' },
-      ROOT,
-    );
-    expect(paths).toEqual({ clientSecretPath: '/tmp/c.json', tokenPath: '/tmp/t.json' });
+  it('環境変数では差し替えられない', () => {
+    // GHEALTH_CLIENT_SECRET をパスとして解釈すると、環境変数の経路での値
+    // （シークレットそのもの）が ENOENT のメッセージに混ざって画面に出てしまう
+    const saved = { ...process.env };
+    process.env.GHEALTH_CLIENT_SECRET = 'dummy-secret';
+    process.env.GHEALTH_TOKEN = '/tmp/t.json';
+    try {
+      expect(credentialPaths(ROOT)).toEqual({
+        clientSecretPath: CLIENT_PATH,
+        tokenPath: TOKEN_PATH,
+      });
+    } finally {
+      process.env = saved;
+    }
   });
 });
 
@@ -325,16 +333,4 @@ describe('main', () => {
     expect(stderr()).toContain('オプションの指定が不正です');
   });
 
-  it('環境変数で認証情報のパスを差し替えられる', () => {
-    const { code, deps } = runMain([], {
-      files: {
-        '/tmp/c.json': CLIENT_JSON,
-        '/tmp/t.json': TOKEN_JSON,
-      },
-      deps: { env: { GHEALTH_CLIENT_SECRET: '/tmp/c.json', GHEALTH_TOKEN: '/tmp/t.json' } },
-    });
-
-    expect(code).toBe(0);
-    expect(deps.spawn).toHaveBeenCalledTimes(3);
-  });
 });

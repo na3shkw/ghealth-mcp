@@ -48,7 +48,7 @@ Google Health API に記録された運動・安静時心拍数・睡眠のデ�
    claude mcp add ghealth -- node "$(pwd)/src/server.js"
    ```
 
-認証情報の 2 ファイルは gitignore 済み。MCP サーバーは環境変数 `GHEALTH_CLIENT_SECRET` / `GHEALTH_TOKEN` でパスを指定でき、指定がなければリポジトリ直下を見るため作業ディレクトリに関係なく動く。ただし初回認証（`npm run auth`）と調査用の `scripts/dump-health-api.js` はリポジトリ直下の固定パスを読み書きするので、この 2 つは環境変数を見ない。
+認証情報の 2 ファイルは gitignore 済み。場所はリポジトリ直下の決め打ちで、絶対パスで解決するため作業ディレクトリに関係なく動く（環境変数では変えられない）。初回認証（`npm run auth`）と調査用の `scripts/dump-health-api.js` も同じパスを読み書きする。
 
 ## リモート MCP として公開する（Vercel）
 
@@ -68,7 +68,7 @@ Vercel には書き込めるファイルシステムが無いので、認証情�
 | `GHEALTH_CLIENT_SECRET` | ✅ | OAuth クライアントシークレット | `client_secret.json` の `installed.client_secret` |
 | `GHEALTH_REFRESH_TOKEN` | ✅ | リフレッシュトークン | `token.json` の `refresh_token` |
 | `GHEALTH_MCP_TOKEN` | ✅ | MCP クライアントに持たせる任意の秘密文字列 | 自分で生成する（例: `openssl rand -hex 32`） |
-| `GHEALTH_TZ` | | `from` / `to` 省略時の「今日」を決める IANA タイムゾーン名 | 既定 `Asia/Tokyo` |
+| `GHEALTH_TZ` | | `from` / `to` 省略時の「今日」を決める IANA タイムゾーン名。解決できない値ならその旨を言って失敗する | 既定 `Asia/Tokyo` |
 
 必須の 4 つは設定しないと動かない（`GHEALTH_MCP_TOKEN` が未設定のときはリクエストを全て拒否する）。
 
@@ -95,7 +95,7 @@ npm run vercel:env -- --mcp-token --force
 
 `token.json` に `refresh_token` が入っていない場合は、`npm run auth` をやり直して同意画面を通す（Google は初回の同意でしか refresh_token を返さないことがある）。
 
-`GHEALTH_CLIENT_SECRET` は、手元のファイル経路では `client_secret.json` の**パス**、この環境変数経路では**シークレットの値そのもの**という二役になっている。どちらの経路を使うかは `GHEALTH_REFRESH_TOKEN` の有無だけで決まる。
+どちらの経路を使うかは `GHEALTH_REFRESH_TOKEN` の有無だけで決まる。`GHEALTH_CLIENT_SECRET` はこの環境変数経路でのみ参照し、常に**シークレットの値そのもの**を表す（ファイル経路は固定パスしか見ないので、パスとの取り違えは起きない）。`GHEALTH_REFRESH_TOKEN` だけあって `GHEALTH_CLIENT_ID` / `GHEALTH_CLIENT_SECRET` が欠けている場合は、欠けている変数名を挙げて起動時に失敗する。
 
 ### Claude から繋ぐ
 

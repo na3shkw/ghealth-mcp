@@ -1,6 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // OAuth2Client に何が渡ったかを見たいだけなので、最低限の振る舞いだけ持つ差し替えを使う
@@ -31,35 +29,36 @@ const { instances, FakeOAuth2Client } = vi.hoisted(() => {
 
 vi.mock('google-auth-library', () => ({ OAuth2Client: FakeOAuth2Client }));
 
-/** ダミーの認証情報を書いた一時ディレクトリを作り、そのパスを環境変数に入れる */
-function setupCredentialFiles(token) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghealth-auth-'));
-  const clientPath = path.join(dir, 'client.json');
-  const tokenPath = path.join(dir, 'token-store.json');
+/**
+ * 認証情報ファイルの中身をメモリ上で差し替える。実ファイル（リポジトリ直下の本物）には
+ * 読み書きとも一切触らない。
+ */
+function setupCredentialFiles({ clientSecretPath, tokenPath }, token) {
+  const files = {
+    [clientSecretPath]: JSON.stringify({
+      installed: { client_id: 'file-id', client_secret: 'file-secret' },
+    }),
+    [tokenPath]: JSON.stringify(token),
+  };
 
-  fs.writeFileSync(
-    clientPath,
-    JSON.stringify({ installed: { client_id: 'file-id', client_secret: 'file-secret' } }),
-  );
-  fs.writeFileSync(tokenPath, JSON.stringify(token));
+  vi.spyOn(fs, 'readFileSync').mockImplementation((file) => {
+    if (!(file in files)) throw Object.assign(new Error(`ENOENT: ${file}`), { code: 'ENOENT' });
+    return files[file];
+  });
+  vi.spyOn(fs, 'writeFileSync').mockImplementation((file, text) => {
+    files[file] = text;
+  });
 
-  process.env.GHEALTH_CLIENT_SECRET = clientPath;
-  process.env.GHEALTH_TOKEN = tokenPath;
-  return { dir, tokenPath };
+  return { files, written: () => JSON.parse(files[tokenPath]) };
 }
 
-/** 環境変数はモジュール読み込み時に評価されるので、毎回読み直す */
+/** 環境変数を設定してから読み込み直す。読み込み時に評価されていないことも含めて見るため */
 const loadModule = () => {
   vi.resetModules();
   return import('../src/auth-client.js');
 };
 
-const ENV_KEYS = [
-  'GHEALTH_CLIENT_ID',
-  'GHEALTH_CLIENT_SECRET',
-  'GHEALTH_REFRESH_TOKEN',
-  'GHEALTH_TOKEN',
-];
+const ENV_KEYS = ['GHEALTH_CLIENT_ID', 'GHEALTH_CLIENT_SECRET', 'GHEALTH_REFRESH_TOKEN'];
 
 describe('createAuthClient', () => {
   const saved = {};
@@ -77,6 +76,7 @@ describe('createAuthClient', () => {
       if (saved[key] === undefined) delete process.env[key];
       else process.env[key] = saved[key];
     }
+    vi.restoreAllMocks();
   });
 
   describe('環境変数の経路', () => {
@@ -101,7 +101,6 @@ describe('createAuthClient', () => {
       createAuthClient();
 
       expect(spy).not.toHaveBeenCalled();
-      spy.mockRestore();
     });
 
     it('tokens イベントを購読しない（書き戻しをしない）', async () => {
@@ -110,14 +109,53 @@ describe('createAuthClient', () => {
 
       expect(auth.listeners.has('tokens')).toBe(false);
     });
+
+    it.each([['GHEALTH_CLIENT_ID'], ['GHEALTH_CLIENT_SECRET']])(
+      '%s が欠けていれば、その名前を挙げて失敗する',
+      async (missing) => {
+        delete process.env[missing];
+        const { createAuthClient } = await loadModule();
+
+        expect(() => createAuthClient()).toThrow(missing);
+        expect(instances).toHaveLength(0);
+      },
+    );
+
+    it('両方欠けていれば両方の名前を挙げる', async () => {
+      delete process.env.GHEALTH_CLIENT_ID;
+      delete process.env.GHEALTH_CLIENT_SECRET;
+      const { createAuthClient } = await loadModule();
+
+      expect(() => createAuthClient()).toThrow(/GHEALTH_CLIENT_ID \/ GHEALTH_CLIENT_SECRET/);
+    });
+
+    it('空文字は未設定として扱う', async () => {
+      process.env.GHEALTH_CLIENT_SECRET = '';
+      const { createAuthClient } = await loadModule();
+
+      expect(() => createAuthClient()).toThrow('GHEALTH_CLIENT_SECRET');
+    });
   });
 
   describe('ファイルの経路', () => {
-    it('GHEALTH_REFRESH_TOKEN が無ければファイルから組み立てる', async () => {
-      setupCredentialFiles({ refresh_token: 'stored-refresh', access_token: 'stored-access' });
+    it('認証情報の場所は環境変数では変えられない', async () => {
+      process.env.GHEALTH_CLIENT_SECRET = '/tmp/どこか別の場所.json';
+      const paths = await loadModule();
 
-      const { createAuthClient } = await loadModule();
-      const auth = createAuthClient();
+      // GHEALTH_CLIENT_SECRET は環境変数の経路のシークレットの値専用で、パスとしては見ない
+      expect(paths.CLIENT_SECRET_PATH).toMatch(/[/\\]client_secret\.json$/);
+      expect(paths.CLIENT_SECRET_PATH).not.toContain('別の場所');
+      expect(paths.TOKEN_PATH).toMatch(/[/\\]token\.json$/);
+    });
+
+    it('GHEALTH_REFRESH_TOKEN が無ければファイルから組み立てる', async () => {
+      const paths = await loadModule();
+      setupCredentialFiles(pathsOf(paths), {
+        refresh_token: 'stored-refresh',
+        access_token: 'stored-access',
+      });
+
+      const auth = paths.createAuthClient();
 
       expect(auth.clientId).toBe('file-id');
       expect(auth.clientSecret).toBe('file-secret');
@@ -128,20 +166,25 @@ describe('createAuthClient', () => {
     });
 
     it('tokens イベントで新しい access token を書き戻す', async () => {
-      const { tokenPath } = setupCredentialFiles({
+      const module = await loadModule();
+      const { written } = setupCredentialFiles(pathsOf(module), {
         refresh_token: 'stored-refresh',
         access_token: 'old-access',
       });
 
-      const { createAuthClient } = await loadModule();
-      const auth = createAuthClient();
+      const auth = module.createAuthClient();
       // リフレッシュのレスポンスに refresh_token は含まれない
       auth.fire('tokens', { access_token: 'new-access' });
 
-      expect(JSON.parse(fs.readFileSync(tokenPath, 'utf8'))).toEqual({
+      expect(written()).toEqual({
         refresh_token: 'stored-refresh',
         access_token: 'new-access',
       });
     });
   });
 });
+
+/** 読み込んだモジュールから、差し替え対象のファイルパスを取り出す */
+function pathsOf({ CLIENT_SECRET_PATH, TOKEN_PATH }) {
+  return { clientSecretPath: CLIENT_SECRET_PATH, tokenPath: TOKEN_PATH };
+}

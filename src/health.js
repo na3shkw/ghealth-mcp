@@ -258,20 +258,35 @@ function shiftDays(isoDay, days) {
   return isoDate(d);
 }
 
+const DEFAULT_TIME_ZONE = 'Asia/Tokyo';
+
 /**
- * 「今日」を決めるタイムゾーン。
+ * 「今日」を決めるタイムゾーンを GHEALTH_TZ から読む。
  * 実行環境のローカル時刻は UTC のことがある（Vercel など）ので、システムの
  * タイムゾーンには頼らず明示的に決める。既定は日本時間。
  * `TZ` を見ないのは、Vercel では UTC が入っていて意図せず日付がずれるため。
+ * 不正な値のまま Intl に渡すと呼び出しのたびに RangeError になり原因が読み取れないので、
+ * ここで何が悪いのかを言って落とす。
  */
-const DEFAULT_TIME_ZONE = process.env.GHEALTH_TZ || 'Asia/Tokyo';
+export function defaultTimeZone(env = process.env) {
+  const zone = env.GHEALTH_TZ;
+  if (!zone) return DEFAULT_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: zone });
+  } catch {
+    throw new Error(
+      `GHEALTH_TZ が IANA タイムゾーン名として不正です: ${zone}（例: Asia/Tokyo、UTC）`,
+    );
+  }
+  return zone;
+}
 
 /**
  * 指定タイムゾーンでの「今日」を YYYY-MM-DD で返す。
  * 固定オフセットを足すのではなく Intl に解決させるので、
  * サマータイムのあるタイムゾーンを指定しても日付がずれない。
  */
-export function todayInZone(now = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+export function todayInZone(now = new Date(), timeZone = defaultTimeZone()) {
   // en-CA は YYYY-MM-DD 形式
   return new Intl.DateTimeFormat('en-CA', {
     timeZone,
@@ -281,7 +296,7 @@ export function todayInZone(now = new Date(), timeZone = DEFAULT_TIME_ZONE) {
   }).format(now);
 }
 
-/** from / to の既定値を埋める。to は DEFAULT_TIME_ZONE での今日、from は to の 30 日前 */
+/** from / to の既定値を埋める。to は GHEALTH_TZ での今日、from は to の 30 日前 */
 function resolveRange({ from, to } = {}) {
   const toDay = to ?? todayInZone();
   return { fromDay: from ?? shiftDays(toDay, -30), toDay };

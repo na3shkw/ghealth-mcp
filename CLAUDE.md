@@ -26,7 +26,7 @@ HTTP 版（`src/index.js`）は Hono アプリを default export しているだ
 - `src/health.js` の整形関数（`summarize`, `detail`, `restingHeartRate`, `sleepSession` など）は純粋関数として export し、テストから直接叩く。ネットワークを使う `list*` / `get*` は `../src/auth-client.js` を `vi.mock` して検証する
 - 新しいデータ型を足すときは「フィルタ組み立て + ページング」の `list*` 関数と、dataPoint 1 件を整形する純粋関数に分ける
 - テストの置き場は `test/` 直下が `src/`（本番コード）用、`test/scripts/` が `scripts/`（開発用ツール）用。`test/` 直下は `src/` のミラーではなく関心ごとで分ける（`format.test.js` と `health.test.js` はどちらも `src/health.js` が対象）。`vitest.config.js` の `include` が `test/**/*.test.js` なので、ソースの隣に置いても拾われない
-- 実行環境のタイムゾーンに依存しない。Vercel は UTC で動くので、`from` / `to` 省略時の「今日」は `todayInZone()` が `GHEALTH_TZ`（既定は `Asia/Tokyo`）で解決する。`TZ` は見ない（Vercel では UTC が入っている）。日時の組み立ては API が返す UTC オフセットか epoch 値から行い、`getFullYear()` などローカル時刻を読む API は使わない
+- 実行環境のタイムゾーンに依存しない。Vercel は UTC で動くので、`from` / `to` 省略時の「今日」は `todayInZone()` が `defaultTimeZone()`（`GHEALTH_TZ`、既定は `Asia/Tokyo`）で解決する。`TZ` は見ない（Vercel では UTC が入っている）。`GHEALTH_TZ` は定数に畳まず都度読む（環境変数から既定値への配線をテストで固定するため）。日時の組み立ては API が返す UTC オフセットか epoch 値から行い、`getFullYear()` などローカル時刻を読む API は使わない
 
 ## Google Health API で踏みやすい点
 
@@ -46,7 +46,9 @@ HTTP 版（`src/index.js`）は Hono アプリを default export しているだ
 
 ## 認証情報の扱い
 
-`src/auth-client.js` は 2 つの経路を持つ。`GHEALTH_REFRESH_TOKEN` があれば環境変数から `OAuth2Client` を組み立て（access token はメモリのみ、書き戻しなし）、無ければ手元のファイルから読む。リモート（Vercel）は前者、手元は後者。`GHEALTH_CLIENT_SECRET` は環境変数の経路ではシークレットの値そのもの、ファイルの経路ではクライアント情報 JSON のパスという二役になっているので混同しないこと。
+`src/auth-client.js` は 2 つの経路を持つ。`GHEALTH_REFRESH_TOKEN` があれば環境変数から `OAuth2Client` を組み立て（access token はメモリのみ、書き戻しなし）、無ければ手元のファイルから読む。リモート（Vercel）は前者、手元は後者。環境変数の経路では `GHEALTH_CLIENT_ID` / `GHEALTH_CLIENT_SECRET` が揃っていることを先に検証し、欠けていれば変数名を挙げて落とす（黙って組み立てると最初の API 呼び出しで Google 側の不可解なエラーになる）。
+
+認証情報ファイルの場所はリポジトリ直下の決め打ちで、環境変数では差し替えられない（`src/auth-client.js` と `scripts/set-vercel-env.js` の両方）。`GHEALTH_CLIENT_SECRET` をパスとしても解釈すると、環境変数の経路の値（シークレットそのもの）が `ENOENT` のメッセージに混ざって画面に出てしまうため。この環境変数は常にシークレットの値そのものを表す。
 
 Vercel への環境変数の設定は `scripts/set-vercel-env.js`（`npm run vercel:env`）が担う。このスクリプトは認証情報ファイルを読むが、取り出した値は画面に出さず、`vercel` へは標準入力で渡す（`--value` だとコマンドラインに残る）。値の確認が必要なときもスクリプトに出力を足さず、ユーザーに聞くこと。この 2 つ（値を出さない・標準入力で渡す）は `test/scripts/set-vercel-env.test.js` で検証しているので、壊さないこと。
 
@@ -62,6 +64,18 @@ Vercel への環境変数の設定は `scripts/set-vercel-env.js`（`npm run ver
 - `node scripts/dump-health-api.js` で取得した生 JSON は `tmp/`（gitignore 済み）に置く。調査メモも同様
 - 実データを見て分かったことをドキュメントに書くときは、具体的な数値や日付ではなく仕様として書く
 - 会話中に実データが出てきても、そのままファイルに書き出さない。必要ならユーザーに確認する
+
+## コメント
+
+コメントは**今のコードを読む人**に向けて書く。差分やレビューを追っている人に向けて書かない。変更の経緯（前はどうだったか、なぜ変えたか）はコミットメッセージとレビューのやり取りに置く。
+
+- 以前の実装を知らないと意味が取れない書き方をしない。「定数ではなく都度読む」「部分文字列マッチをやめた」「値を渡せる signature に変えた時点で落ちる」はどれも差分向け。今の形がなぜ必要かだけを書く
+- コードがそのまま言っていること（`throw` している、2 引数である）を書かない。書くのは、コードからは読み取れない理由や外部の事情の方
+- 同じ理由を実装とテストの両方に書かない。実装側の制約は実装に、テストの意図はテストに、1 箇所だけ置く
+- テスト名が言っていることをコメントで繰り返さない。足すのは、テスト名からは読み取れない前提（なぜこの入力なのか、何を壊すと落ちるのか）があるときだけ
+- ソースから他ファイルへのポインタ（「〜は `test/http.test.js` で確かめている」）は書かない。移動やリネームで簡単に嘘になる。不変条件の理由は、それを守っている側に 1 つ書く。ファイルをまたぐ約束事を残したいときは、コメントではなくこの CLAUDE.md に書く
+- 実装を変えたら周辺のコメントが嘘になっていないか確かめる。とくに「モジュール読み込み時に評価される」のような**挙動を述べたコメント**はリファクタで簡単に嘘になる。嘘のコメントは無いより悪い
+- 近くに似たことを書いた JSDoc が 2 つ並んだら統合する。関数を分けたときに古い方が取り残されやすい
 
 ## 言語
 

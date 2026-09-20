@@ -46,13 +46,11 @@ export const usage = (clientSecretPath, tokenPath) =>
   - vercel link 済みで、vercel に PATH が通っていること
 `;
 
-/** 認証情報ファイルの場所。src/auth-client.js と同じ環境変数で上書きできる */
-export function credentialPaths(env = process.env, root = repoRoot) {
-  const resolve = (envName, fallback) =>
-    env[envName] ? path.resolve(env[envName]) : path.join(root, fallback);
+/** 認証情報ファイルの場所。src/auth-client.js と同じくリポジトリ直下の決め打ち */
+export function credentialPaths(root = repoRoot) {
   return {
-    clientSecretPath: resolve('GHEALTH_CLIENT_SECRET', 'client_secret.json'),
-    tokenPath: resolve('GHEALTH_TOKEN', 'token.json'),
+    clientSecretPath: path.join(root, 'client_secret.json'),
+    tokenPath: path.join(root, 'token.json'),
   };
 }
 
@@ -130,7 +128,6 @@ const defaultDeps = () => ({
   warn: console.warn,
   error: console.error,
   randomToken: () => randomBytes(32).toString('hex'),
-  env: process.env,
   root: repoRoot,
 });
 
@@ -151,7 +148,7 @@ export function main(argv = [], overrides = {}) {
 
 function run(argv, deps) {
   const opts = parseOptions(argv);
-  const { clientSecretPath, tokenPath } = credentialPaths(deps.env, deps.root);
+  const { clientSecretPath, tokenPath } = credentialPaths(deps.root);
 
   if (opts.help) {
     deps.log(usage(clientSecretPath, tokenPath));
