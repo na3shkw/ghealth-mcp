@@ -49,16 +49,32 @@ Google Health API に記録された運動・安静時心拍数・睡眠のデ�
 
 Vercel には書き込めるファイルシステムが無いので、認証情報はファイルではなく環境変数で渡す。`GHEALTH_REFRESH_TOKEN` が設定されていれば自動的にこの経路になる。リフレッシュして得た access token はインスタンスのメモリに置くだけで保存しない（Google はリフレッシュ時に refresh_token を差し替えないため、これで足りる）。
 
-設定する環境変数は 4 つ。いずれも JSON ではなく値そのものを入れる。
+設定する環境変数は 4 つ。いずれも JSON ではなく値そのもの（1 行の文字列）を入れる。
 
-| 環境変数 | 値 |
-| --- | --- |
-| `GHEALTH_CLIENT_ID` | OAuth クライアント JSON の `installed.client_id` |
-| `GHEALTH_CLIENT_SECRET` | 同じく `installed.client_secret` |
-| `GHEALTH_REFRESH_TOKEN` | `npm run auth` で得たトークン JSON の `refresh_token` |
-| `GHEALTH_MCP_TOKEN` | MCP クライアントに持たせる任意の秘密文字列 |
+| 環境変数 | 値 | 取得元 |
+| --- | --- | --- |
+| `GHEALTH_CLIENT_ID` | OAuth クライアント ID | `client_secret.json` の `installed.client_id` |
+| `GHEALTH_CLIENT_SECRET` | OAuth クライアントシークレット | `client_secret.json` の `installed.client_secret` |
+| `GHEALTH_REFRESH_TOKEN` | リフレッシュトークン | `token.json` の `refresh_token` |
+| `GHEALTH_MCP_TOKEN` | MCP クライアントに持たせる任意の秘密文字列 | 自分で生成する（例: `openssl rand -hex 32`） |
 
-`GHEALTH_CLIENT_SECRET` は、手元のファイル経路ではクライアント情報 JSON の**パス**、この環境変数経路では**シークレットの値そのもの**という二役になっている。どちらの経路を使うかは `GHEALTH_REFRESH_TOKEN` の有無だけで決まる。
+前 3 つは手元のセットアップで作られるファイルから取り出す。つまり、上の「セットアップ（手元で stdio として使う）」の手順 2（`client_secret.json` の配置）と手順 3（`npm run auth` による `token.json` の生成）を先に済ませておく必要がある。値の取り出しは次の通り。
+
+```bash
+jq -r '.installed.client_id'     client_secret.json   # GHEALTH_CLIENT_ID
+jq -r '.installed.client_secret' client_secret.json   # GHEALTH_CLIENT_SECRET
+jq -r '.refresh_token'           token.json           # GHEALTH_REFRESH_TOKEN
+```
+
+`token.json` に `refresh_token` が入っていない場合は、`npm run auth` をやり直して同意画面を通す（Google は初回の同意でしか refresh_token を返さないことがある）。
+
+Vercel への登録は Vercel のダッシュボードか、CLI なら次の通り。
+
+```bash
+vercel env add GHEALTH_CLIENT_ID production   # 値はプロンプトに貼り付ける
+```
+
+`GHEALTH_CLIENT_SECRET` は、手元のファイル経路では `client_secret.json` の**パス**、この環境変数経路では**シークレットの値そのもの**という二役になっている。どちらの経路を使うかは `GHEALTH_REFRESH_TOKEN` の有無だけで決まる。
 
 クライアントの認証は `x-api-key` ヘッダーと `GHEALTH_MCP_TOKEN` の定数時間比較。`GHEALTH_MCP_TOKEN` が未設定のときは設定漏れによる無認証公開を避けるため全て拒否する。401 に `WWW-Authenticate` は付けない（付けると claude.ai 側が OAuth の探索を始めてしまう）。
 
