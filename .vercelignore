@@ -1,5 +1,6 @@
-client_secret.json
-token.json
-tmp/
 .claude/
 assets/
+tmp/
+
+client_secret.json
+token.json

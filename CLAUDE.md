@@ -7,7 +7,7 @@ Google Health API の運動・安静時心拍数・睡眠データを返す MCP 
 ```bash
 npm test                       # vitest を 1 回実行
 npx vitest run test/format.test.js -t '入眠'   # 単体で絞る場合
-node src/fetch.js <path>       # 生 JSON を見る調査用。path は /v4/users/me/ 以降
+node scripts/dump-health-api.js <path>       # 生 JSON を見る調査用。path は /v4/users/me/ 以降
 npm run vercel:env -- --dry-run   # Vercel の環境変数に何を設定するか確認する
 ```
 
@@ -22,11 +22,11 @@ HTTP 版（`src/index.js`）は Hono アプリを default export しているだ
 - ツール定義と入出力スキーマは `src/mcp-server.js` の `createServer()` に集約する。`src/server.js`（stdio）と `src/index.js`（HTTP）は、このファクトリーを起動方法に繋ぐだけ。API 呼び出しと整形は `src/health.js` に置く
 - `createServer()` は HTTP 版ではリクエストごとに呼ばれる。インスタンス間で状態を持たせない
 - **サーバーからの通知と長時間ストリームは使わない。** `tools.listChanged` は `false` を宣言し、`subscriptions/listen` は `maxSubscriptions: 0` で受け付けない。購読ストリームはクライアントが繋いでいる間ずっと開いたままになり、Vercel の関数実行上限 (300 秒) まで居座ってタイムアウトエラーになる。ステートレス構成では通知を送る常駐インスタンスも無い。ツールを増やしても、再接続したクライアントが `server/discover` で取り直すので困らない。ツールを動的に出し分けるようにしたら見直すこと
-- MCP SDK は v2（`@modelcontextprotocol/server`）に統一済み。v1（`@modelcontextprotocol/sdk`）は使わない。`inputSchema` は v2 で素のオブジェクトが非推奨なので `z.object({ ... })` で包む
+- MCP SDK は `@modelcontextprotocol/server`（v2）を使う。名前の似た `@modelcontextprotocol/sdk`（v1）は別物なので入れない。`inputSchema` は素のオブジェクトが非推奨なので `z.object({ ... })` で包む
 - `src/health.js` の整形関数（`summarize`, `detail`, `restingHeartRate`, `sleepSession` など）は純粋関数として export し、テストから直接叩く。ネットワークを使う `list*` / `get*` は `../src/auth-client.js` を `vi.mock` して検証する
 - 新しいデータ型を足すときは「フィルタ組み立て + ページング」の `list*` 関数と、dataPoint 1 件を整形する純粋関数に分ける
 - テストの置き場は `test/` 直下が `src/`（本番コード）用、`test/scripts/` が `scripts/`（開発用ツール）用。`test/` 直下は `src/` のミラーではなく関心ごとで分ける（`format.test.js` と `health.test.js` はどちらも `src/health.js` が対象）。`vitest.config.js` の `include` が `test/**/*.test.js` なので、ソースの隣に置いても拾われない
-- 実行環境のタイムゾーンに依存しない。Vercel は UTC で動くので、`from` / `to` 省略時の「今日」は `todayInTokyo()` で日本時間に固定している。日時の組み立ては API が返す UTC オフセットか epoch 値から行い、`getFullYear()` などローカル時刻を読む API は使わない
+- 実行環境のタイムゾーンに依存しない。Vercel は UTC で動くので、`from` / `to` 省略時の「今日」は `todayInZone()` が `GHEALTH_TZ`（既定は `Asia/Tokyo`）で解決する。`TZ` は見ない（Vercel では UTC が入っている）。日時の組み立ては API が返す UTC オフセットか epoch 値から行い、`getFullYear()` などローカル時刻を読む API は使わない
 
 ## Google Health API で踏みやすい点
 
@@ -59,7 +59,7 @@ Vercel への環境変数の設定は `scripts/set-vercel-env.js`（`npm run ver
 実 API から返ってきたヘルスデータ（運動・心拍数・睡眠の記録、GPS ログ、ユーザー ID）を、コード・テスト・コミットメッセージに入れない。リポジトリに残すのはレスポンスの**構造**だけで、値はすべて作り物にする。
 
 - テストのフィクスチャは `test/fixtures.js` のように、実 API の形に合わせたダミー値で書く。実データをコピーして日付だけ変える、といったことはしない
-- `node src/fetch.js` で取得した生 JSON は `tmp/`（gitignore 済み）に置く。調査メモも同様
+- `node scripts/dump-health-api.js` で取得した生 JSON は `tmp/`（gitignore 済み）に置く。調査メモも同様
 - 実データを見て分かったことをドキュメントに書くときは、具体的な数値や日付ではなく仕様として書く
 - 会話中に実データが出てきても、そのままファイルに書き出さない。必要ならユーザーに確認する
 
