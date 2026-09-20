@@ -58,21 +58,28 @@ Vercel には書き込めるファイルシステムが無いので、認証情�
 | `GHEALTH_REFRESH_TOKEN` | リフレッシュトークン | `token.json` の `refresh_token` |
 | `GHEALTH_MCP_TOKEN` | MCP クライアントに持たせる任意の秘密文字列 | 自分で生成する（例: `openssl rand -hex 32`） |
 
-前 3 つは手元のセットアップで作られるファイルから取り出す。つまり、上の「セットアップ（手元で stdio として使う）」の手順 2（`client_secret.json` の配置）と手順 3（`npm run auth` による `token.json` の生成）を先に済ませておく必要がある。値の取り出しは次の通り。
+前 3 つは手元のセットアップで作られるファイルから取り出す。つまり、上の「セットアップ（手元で stdio として使う）」の手順 2（`client_secret.json` の配置）と手順 3（`npm run auth` による `token.json` の生成）を先に済ませておく必要がある。
+
+取り出しから Vercel への登録までは 1 コマンドでできる。
 
 ```bash
-jq -r '.installed.client_id'     client_secret.json   # GHEALTH_CLIENT_ID
-jq -r '.installed.client_secret' client_secret.json   # GHEALTH_CLIENT_SECRET
-jq -r '.refresh_token'           token.json           # GHEALTH_REFRESH_TOKEN
+vercel link                # 未リンクなら先に
+npm run vercel:env         # production に設定する
+npm run vercel:env -- --dry-run    # 何をするかだけ見る
+npm run vercel:env -- --force      # 既にある値を上書きする
 ```
+
+値は標準入力で `vercel` に渡すので、コマンドラインにも `ps` にも履歴にも残らない。画面にも出さない。既定では Vercel 上で読み戻せない機微な値（Secret）として登録する。
+
+`GHEALTH_MCP_TOKEN` をまだ決めていない、または作り直したい場合は `--mcp-token` を付ける。新しく生成して設定し、その値を一度だけ表示するので、claude.ai のコネクタの `x-api-key` にも同じものを設定する。
+
+```bash
+npm run vercel:env -- --mcp-token --force
+```
+
+その他のオプションは `npm run vercel:env -- --help` を参照。
 
 `token.json` に `refresh_token` が入っていない場合は、`npm run auth` をやり直して同意画面を通す（Google は初回の同意でしか refresh_token を返さないことがある）。
-
-Vercel への登録は Vercel のダッシュボードか、CLI なら次の通り。
-
-```bash
-vercel env add GHEALTH_CLIENT_ID production   # 値はプロンプトに貼り付ける
-```
 
 `GHEALTH_CLIENT_SECRET` は、手元のファイル経路では `client_secret.json` の**パス**、この環境変数経路では**シークレットの値そのもの**という二役になっている。どちらの経路を使うかは `GHEALTH_REFRESH_TOKEN` の有無だけで決まる。
 
@@ -168,6 +175,7 @@ node src/fetch.js dataTypes/exercise/dataPoints
 | `src/auth-client.js` | `OAuth2Client` を組み立てる。環境変数経路とファイル経路、リフレッシュ時の書き戻しを担当 |
 | `src/auth.js` | 初回認証（ループバックサーバー + PKCE） |
 | `src/fetch.js` | 生 JSON を出す調査用スクリプト |
+| `scripts/set-vercel-env.js` | 認証情報を Vercel の環境変数に設定する（`npm run vercel:env`） |
 | `test/` | 整形・フィルタ組み立て・HTTP エンドポイント・認証クライアントのテスト |
 
 MCP SDK は v2（`@modelcontextprotocol/server`）に統一している。

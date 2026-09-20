@@ -8,6 +8,7 @@ Google Health API の運動・安静時心拍数・睡眠データを返す MCP 
 npm test                       # vitest を 1 回実行
 npx vitest run test/format.test.js -t '入眠'   # 単体で絞る場合
 node src/fetch.js <path>       # 生 JSON を見る調査用。path は /v4/users/me/ 以降
+npm run vercel:env -- --dry-run   # Vercel の環境変数に何を設定するか確認する
 ```
 
 初回認証（`npm run auth`）はブラウザでの同意操作が必要で、手順は README.md にある。
@@ -44,6 +45,8 @@ HTTP 版（`src/index.js`）は Hono アプリを default export しているだ
 ## 認証情報の扱い
 
 `src/auth-client.js` は 2 つの経路を持つ。`GHEALTH_REFRESH_TOKEN` があれば環境変数から `OAuth2Client` を組み立て（access token はメモリのみ、書き戻しなし）、無ければ手元のファイルから読む。リモート（Vercel）は前者、手元は後者。`GHEALTH_CLIENT_SECRET` は環境変数の経路ではシークレットの値そのもの、ファイルの経路ではクライアント情報 JSON のパスという二役になっているので混同しないこと。
+
+Vercel への環境変数の設定は `scripts/set-vercel-env.js`（`npm run vercel:env`）が担う。このスクリプトは認証情報ファイルを読むが、取り出した値は画面に出さず、`vercel` へは標準入力で渡す（`--value` だとコマンドラインに残る）。値の確認が必要なときもスクリプトに出力を足さず、ユーザーに聞くこと。
 
 `client_secret.json` と `token.json` は読み取り禁止。`.claude/settings.json` の permissions deny と PreToolUse フックで、Read と Bash の両方をブロックしている。ファイル名を含む Bash コマンドはフックに弾かれるため、これらに触れる作業はヒアドキュメントではなく編集ツール側で行うか、ユーザーに依頼する。中身を確認する必要が出た場合も自分で読まず、ユーザーに聞くこと。
 

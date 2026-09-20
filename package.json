@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "auth": "node src/auth.js",
+    "vercel:env": "node scripts/set-vercel-env.js",
     "start": "node src/server.js",
     "test": "vitest run",
     "test:watch": "vitest"
