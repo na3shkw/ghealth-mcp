@@ -118,3 +118,53 @@ describe('/mcp のツール', () => {
     expect(text).toContain('isError');
   });
 });
+
+describe('/mcp の subscriptions/listen', () => {
+  beforeEach(() => {
+    process.env.GHEALTH_MCP_TOKEN = TOKEN;
+  });
+  afterEach(() => {
+    delete process.env.GHEALTH_MCP_TOKEN;
+  });
+
+  // 2026-07-28 はリクエストごとに _meta のエンベロープと Mcp-Method ヘッダーを要求する
+  const listen = () =>
+    app.request('/mcp', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-protocol-version': '2026-07-28',
+        'mcp-method': 'subscriptions/listen',
+        'x-api-key': TOKEN,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'subscriptions/listen',
+        params: {
+          notifications: { toolsListChanged: true },
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            'io.modelcontextprotocol/clientInfo': { name: 'test', version: '0.0.0' },
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        },
+      }),
+    });
+
+  it('受け付けずに即座に応答を閉じる', async () => {
+    const res = await listen();
+    expect(res.status).toBe(200);
+
+    // 受け付けるとストリームが開いたままになり、Vercel の実行上限 (300 秒) まで居座る。
+    // 本文を読み切れる = 閉じている、をタイムアウト付きで確かめる
+    const closed = await Promise.race([
+      res.text(),
+      new Promise((resolve) => setTimeout(() => resolve(null), 3000)),
+    ]);
+
+    expect(closed, 'ストリームが閉じずに開いたままになっている').not.toBeNull();
+    expect(closed).toContain('Subscription limit reached');
+  });
+});
