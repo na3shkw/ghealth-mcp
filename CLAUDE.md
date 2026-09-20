@@ -46,7 +46,9 @@ HTTP 版（`src/index.js`）は Hono アプリを default export しているだ
 
 `src/auth-client.js` は 2 つの経路を持つ。`GHEALTH_REFRESH_TOKEN` があれば環境変数から `OAuth2Client` を組み立て（access token はメモリのみ、書き戻しなし）、無ければ手元のファイルから読む。リモート（Vercel）は前者、手元は後者。`GHEALTH_CLIENT_SECRET` は環境変数の経路ではシークレットの値そのもの、ファイルの経路ではクライアント情報 JSON のパスという二役になっているので混同しないこと。
 
-Vercel への環境変数の設定は `scripts/set-vercel-env.js`（`npm run vercel:env`）が担う。このスクリプトは認証情報ファイルを読むが、取り出した値は画面に出さず、`vercel` へは標準入力で渡す（`--value` だとコマンドラインに残る）。値の確認が必要なときもスクリプトに出力を足さず、ユーザーに聞くこと。
+Vercel への環境変数の設定は `scripts/set-vercel-env.js`（`npm run vercel:env`）が担う。このスクリプトは認証情報ファイルを読むが、取り出した値は画面に出さず、`vercel` へは標準入力で渡す（`--value` だとコマンドラインに残る）。値の確認が必要なときもスクリプトに出力を足さず、ユーザーに聞くこと。この 2 つ（値を出さない・標準入力で渡す）は `test/set-vercel-env.test.js` で検証しているので、壊さないこと。
+
+スクリプトの副作用（ファイル読み込み・プロセス起動・出力）は `main(argv, deps)` の `deps` 経由にしてある。テストは実ファイルにも `vercel` にも触らず、`deps` を差し替えて検証する。
 
 `client_secret.json` と `token.json` は読み取り禁止。`.claude/settings.json` の permissions deny と PreToolUse フックで、Read と Bash の両方をブロックしている。ファイル名を含む Bash コマンドはフックに弾かれるため、これらに触れる作業はヒアドキュメントではなく編集ツール側で行うか、ユーザーに依頼する。中身を確認する必要が出た場合も自分で読まず、ユーザーに聞くこと。
 
