@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Google Health API の運動・安静時心拍数・睡眠データを返すローカル MCP サーバー。概要・必要な環境・セットアップ手順は README.md を参照。
+Google Health API の運動・安静時心拍数・睡眠データを返す MCP サーバー。手元では stdio、Vercel 上では HTTP で同じツールを提供する。概要・必要な環境・セットアップ手順は README.md を参照。
 
 ## コマンド
 
@@ -12,13 +12,18 @@ node src/fetch.js <path>       # 生 JSON を見る調査用。path は /v4/user
 
 初回認証（`npm run auth`）はブラウザでの同意操作が必要で、手順は README.md にある。
 
-サーバー本体（`npm start`）は stdio トランスポートなので手で起動しても対話できない。動作確認は vitest か、登録済みの `ghealth` MCP ツール経由で行う。
+サーバー本体（`npm start`）は stdio トランスポートなので手で起動しても対話できない。動作確認は vitest か、登録済みの `ghealth` MCP ツール経由で行う。JSON-RPC を直接流し込みたい場合は、`initialize` → `notifications/initialized` → 本命のリクエストを 1 行ずつ `node src/server.js` にパイプする。
+
+HTTP 版（`src/index.js`）は Hono アプリを default export しているだけなので、テストからは `app.request('/mcp', ...)` で直接叩ける。サーバーを立てる必要はない。
 
 ## 構成の方針
 
-- `src/server.js` はツール定義と入出力スキーマだけを持つ。API 呼び出しと整形は `src/health.js` に置く
+- ツール定義と入出力スキーマは `src/mcp-server.js` の `createServer()` に集約する。`src/server.js`（stdio）と `src/index.js`（HTTP）は、このファクトリーを起動方法に繋ぐだけ。API 呼び出しと整形は `src/health.js` に置く
+- `createServer()` は HTTP 版ではリクエストごとに呼ばれる。インスタンス間で状態を持たせない
+- MCP SDK は v2（`@modelcontextprotocol/server`）に統一済み。v1（`@modelcontextprotocol/sdk`）は使わない。`inputSchema` は v2 で素のオブジェクトが非推奨なので `z.object({ ... })` で包む
 - `src/health.js` の整形関数（`summarize`, `detail`, `restingHeartRate`, `sleepSession` など）は純粋関数として export し、テストから直接叩く。ネットワークを使う `list*` / `get*` は `../src/auth-client.js` を `vi.mock` して検証する
 - 新しいデータ型を足すときは「フィルタ組み立て + ページング」の `list*` 関数と、dataPoint 1 件を整形する純粋関数に分ける
+- 実行環境のタイムゾーンに依存しない。Vercel は UTC で動くので、`from` / `to` 省略時の「今日」は `todayInTokyo()` で日本時間に固定している。日時の組み立ては API が返す UTC オフセットか epoch 値から行い、`getFullYear()` などローカル時刻を読む API は使わない
 
 ## Google Health API で踏みやすい点
 
@@ -37,6 +42,8 @@ node src/fetch.js <path>       # 生 JSON を見る調査用。path は /v4/user
 - 仕様の調査メモは `tmp/` にある（gitignore 済み）
 
 ## 認証情報の扱い
+
+`src/auth-client.js` は 2 つの経路を持つ。`GHEALTH_REFRESH_TOKEN` があれば環境変数から `OAuth2Client` を組み立て（access token はメモリのみ、書き戻しなし）、無ければ手元のファイルから読む。リモート（Vercel）は前者、手元は後者。`GHEALTH_CLIENT_SECRET` は環境変数の経路ではシークレットの値そのもの、ファイルの経路ではクライアント情報 JSON のパスという二役になっているので混同しないこと。
 
 `client_secret.json` と `token.json` は読み取り禁止。`.claude/settings.json` の permissions deny と PreToolUse フックで、Read と Bash の両方をブロックしている。ファイル名を含む Bash コマンドはフックに弾かれるため、これらに触れる作業はヒアドキュメントではなく編集ツール側で行うか、ユーザーに依頼する。中身を確認する必要が出た場合も自分で読まず、ユーザーに聞くこと。
 

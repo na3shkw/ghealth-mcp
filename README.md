@@ -1,6 +1,6 @@
 # ghealth-mcp
 
-Google Health API に記録された運動・安静時心拍数・睡眠のデータを Claude から参照するためのローカル MCP サーバー。
+Google Health API に記録された運動・安静時心拍数・睡眠のデータを Claude から参照するための MCP サーバー。手元では stdio、Vercel 上では HTTP（ストリーマブル HTTP）で、同じツールを提供する。
 
 単位変換や整形はサーバー側で済ませ、モデルにミリメートルや秒/メートルの計算をさせない方針。距離は km、時間は `M:SS`（1 時間を超えると `H:MM:SS`）、ペースは `M:SS/km` のように、そのまま読める形で返す。
 
@@ -10,7 +10,7 @@ Google Health API に記録された運動・安静時心拍数・睡眠のデ�
 - Google Cloud プロジェクトで有効化した Google Health API
 - デスクトップアプリ型の OAuth クライアント
 
-## セットアップ
+## セットアップ（手元で stdio として使う）
 
 1. 依存をインストールする。
 
@@ -43,6 +43,27 @@ Google Health API に記録された運動・安静時心拍数・睡眠のデ�
 
 認証情報の 2 ファイルは gitignore 済み。MCP サーバーは環境変数 `GHEALTH_CLIENT_SECRET` / `GHEALTH_TOKEN` でパスを指定でき、指定がなければリポジトリ直下を見るため作業ディレクトリに関係なく動く。ただし初回認証（`npm run auth`）と調査用の `src/fetch.js` はリポジトリ直下の固定パスを読み書きするので、この 2 つは環境変数を見ない。
 
+## リモート MCP として公開する（Vercel）
+
+`src/index.js` が Hono アプリを export しており、`POST /mcp` でストリーマブル HTTP の MCP エンドポイントになる。ツールの実装は stdio 版と共通（`src/mcp-server.js`）。
+
+Vercel には書き込めるファイルシステムが無いので、認証情報はファイルではなく環境変数で渡す。`GHEALTH_REFRESH_TOKEN` が設定されていれば自動的にこの経路になる。リフレッシュして得た access token はインスタンスのメモリに置くだけで保存しない（Google はリフレッシュ時に refresh_token を差し替えないため、これで足りる）。
+
+設定する環境変数は 4 つ。いずれも JSON ではなく値そのものを入れる。
+
+| 環境変数 | 値 |
+| --- | --- |
+| `GHEALTH_CLIENT_ID` | OAuth クライアント JSON の `installed.client_id` |
+| `GHEALTH_CLIENT_SECRET` | 同じく `installed.client_secret` |
+| `GHEALTH_REFRESH_TOKEN` | `npm run auth` で得たトークン JSON の `refresh_token` |
+| `GHEALTH_MCP_TOKEN` | MCP クライアントに持たせる任意の秘密文字列 |
+
+`GHEALTH_CLIENT_SECRET` は、手元のファイル経路ではクライアント情報 JSON の**パス**、この環境変数経路では**シークレットの値そのもの**という二役になっている。どちらの経路を使うかは `GHEALTH_REFRESH_TOKEN` の有無だけで決まる。
+
+クライアントの認証は `x-api-key` ヘッダーと `GHEALTH_MCP_TOKEN` の定数時間比較。`GHEALTH_MCP_TOKEN` が未設定のときは設定漏れによる無認証公開を避けるため全て拒否する。401 に `WWW-Authenticate` は付けない（付けると claude.ai 側が OAuth の探索を始めてしまう）。
+
+claude.ai のカスタムコネクタに登録するときは、認証方式を「サインインなし」にしたうえでリクエストヘッダーに `x-api-key` を設定する。「今すぐサインイン」を選ぶと、ヘッダーがあっても OAuth が始まって失敗する。
+
 ## ツール
 
 ### `list_exercises`
@@ -54,6 +75,8 @@ Google Health API に記録された運動・安静時心拍数・睡眠のデ�
 | `from` | 開始日（`YYYY-MM-DD`、ローカル日付）。省略時は `to` の 30 日前 |
 | `to` | 終了日（この日を含む）。省略時は今日 |
 | `limit` | 最大件数。既定 20、上限 200 |
+
+`from` / `to` を省略したときの「今日」は日本時間で決まる（実行環境が UTC でもずれない）。この扱いは `get_resting_heart_rate` / `get_sleep` でも同じ。
 
 返すフィールド: `id`, `localDate`, `exerciseType`, `displayName`, `distanceKm`, `duration`, `pacePerKm`, `avgHeartRate`, `calories`, `hasGps`
 
@@ -107,6 +130,8 @@ npm run test:watch
 npm start         # stdio で MCP サーバーを起動（通常は Claude 側から起動される）
 ```
 
+HTTP 版は Hono アプリを default export しているだけなので、動作確認はテスト（`test/http.test.js`）から `app.request('/mcp', ...)` で直接叩ける。
+
 API のレスポンスを生で確認したいときは調査用スクリプトを使う。
 
 ```bash
@@ -119,9 +144,14 @@ node src/fetch.js dataTypes/exercise/dataPoints
 
 | ファイル | 役割 |
 | --- | --- |
-| `src/server.js` | MCP のツール定義。入力スキーマと説明文に専念 |
+| `src/mcp-server.js` | MCP のツール定義。入力スキーマと説明文に専念。stdio 版と HTTP 版の共通のファクトリー |
+| `src/server.js` | stdio での起動（`serveStdio`） |
+| `src/index.js` | HTTP での公開。Hono アプリを export する Vercel のエントリーポイント |
+| `src/api-key.js` | `x-api-key` を検証する Hono ミドルウェア |
 | `src/health.js` | Google Health API の呼び出しとレスポンスの整形 |
-| `src/auth-client.js` | 保存済みトークンから `OAuth2Client` を組み立てる。リフレッシュ時の書き戻しも担当 |
+| `src/auth-client.js` | `OAuth2Client` を組み立てる。環境変数経路とファイル経路、リフレッシュ時の書き戻しを担当 |
 | `src/auth.js` | 初回認証（ループバックサーバー + PKCE） |
 | `src/fetch.js` | 生 JSON を出す調査用スクリプト |
-| `test/` | `health.js` の整形・フィルタ組み立てのテスト |
+| `test/` | 整形・フィルタ組み立て・HTTP エンドポイント・認証クライアントのテスト |
+
+MCP SDK は v2（`@modelcontextprotocol/server`）に統一している。
