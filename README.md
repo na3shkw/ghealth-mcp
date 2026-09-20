@@ -176,6 +176,7 @@ node src/fetch.js dataTypes/exercise/dataPoints
 | `src/auth.js` | 初回認証（ループバックサーバー + PKCE） |
 | `src/fetch.js` | 生 JSON を出す調査用スクリプト |
 | `scripts/set-vercel-env.js` | 認証情報を Vercel の環境変数に設定する（`npm run vercel:env`） |
-| `test/` | 整形・フィルタ組み立て・HTTP エンドポイント・認証クライアントのテスト |
+| `test/` | `src/` のテスト。整形・フィルタ組み立て・HTTP エンドポイント・認証クライアント |
+| `test/scripts/` | `scripts/` のテスト。本番コードのテストと混ざらないよう分けている |
 
 MCP SDK は v2（`@modelcontextprotocol/server`）に統一している。

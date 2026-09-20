@@ -24,6 +24,7 @@ HTTP 版（`src/index.js`）は Hono アプリを default export しているだ
 - MCP SDK は v2（`@modelcontextprotocol/server`）に統一済み。v1（`@modelcontextprotocol/sdk`）は使わない。`inputSchema` は v2 で素のオブジェクトが非推奨なので `z.object({ ... })` で包む
 - `src/health.js` の整形関数（`summarize`, `detail`, `restingHeartRate`, `sleepSession` など）は純粋関数として export し、テストから直接叩く。ネットワークを使う `list*` / `get*` は `../src/auth-client.js` を `vi.mock` して検証する
 - 新しいデータ型を足すときは「フィルタ組み立て + ページング」の `list*` 関数と、dataPoint 1 件を整形する純粋関数に分ける
+- テストの置き場は `test/` 直下が `src/`（本番コード）用、`test/scripts/` が `scripts/`（開発用ツール）用。`test/` 直下は `src/` のミラーではなく関心ごとで分ける（`format.test.js` と `health.test.js` はどちらも `src/health.js` が対象）。`vitest.config.js` の `include` が `test/**/*.test.js` なので、ソースの隣に置いても拾われない
 - 実行環境のタイムゾーンに依存しない。Vercel は UTC で動くので、`from` / `to` 省略時の「今日」は `todayInTokyo()` で日本時間に固定している。日時の組み立ては API が返す UTC オフセットか epoch 値から行い、`getFullYear()` などローカル時刻を読む API は使わない
 
 ## Google Health API で踏みやすい点
@@ -46,7 +47,7 @@ HTTP 版（`src/index.js`）は Hono アプリを default export しているだ
 
 `src/auth-client.js` は 2 つの経路を持つ。`GHEALTH_REFRESH_TOKEN` があれば環境変数から `OAuth2Client` を組み立て（access token はメモリのみ、書き戻しなし）、無ければ手元のファイルから読む。リモート（Vercel）は前者、手元は後者。`GHEALTH_CLIENT_SECRET` は環境変数の経路ではシークレットの値そのもの、ファイルの経路ではクライアント情報 JSON のパスという二役になっているので混同しないこと。
 
-Vercel への環境変数の設定は `scripts/set-vercel-env.js`（`npm run vercel:env`）が担う。このスクリプトは認証情報ファイルを読むが、取り出した値は画面に出さず、`vercel` へは標準入力で渡す（`--value` だとコマンドラインに残る）。値の確認が必要なときもスクリプトに出力を足さず、ユーザーに聞くこと。この 2 つ（値を出さない・標準入力で渡す）は `test/set-vercel-env.test.js` で検証しているので、壊さないこと。
+Vercel への環境変数の設定は `scripts/set-vercel-env.js`（`npm run vercel:env`）が担う。このスクリプトは認証情報ファイルを読むが、取り出した値は画面に出さず、`vercel` へは標準入力で渡す（`--value` だとコマンドラインに残る）。値の確認が必要なときもスクリプトに出力を足さず、ユーザーに聞くこと。この 2 つ（値を出さない・標準入力で渡す）は `test/scripts/set-vercel-env.test.js` で検証しているので、壊さないこと。
 
 スクリプトの副作用（ファイル読み込み・プロセス起動・出力）は `main(argv, deps)` の `deps` 経由にしてある。テストは実ファイルにも `vercel` にも触らず、`deps` を差し替えて検証する。
 

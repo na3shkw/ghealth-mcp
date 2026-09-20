@@ -9,7 +9,7 @@ import {
   parseOptions,
   readJson,
   vercelArgs,
-} from '../scripts/set-vercel-env.js';
+} from '../../scripts/set-vercel-env.js';
 
 // 実際の認証情報は一切使わない。すべて作り物の値
 const CLIENT_JSON = JSON.stringify({
