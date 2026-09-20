@@ -86,17 +86,6 @@ function parseArgs(argv) {
   return options;
 }
 
-/** vercel は mise でインストールされていて PATH に無いことがある */
-function resolveVercel() {
-  const mise = spawnSync('mise', ['which', 'vercel'], { encoding: 'utf8' });
-  if (mise.status === 0 && mise.stdout.trim()) return mise.stdout.trim();
-
-  const which = spawnSync('which', ['vercel'], { encoding: 'utf8' });
-  if (which.status === 0 && which.stdout.trim()) return which.stdout.trim();
-
-  throw new UserError('vercel が見つかりません。mise install するか PATH を通してください');
-}
-
 /** JSON から 1 つのフィールドを取り出す。値そのものは表示しない */
 function readField(file, pick, label) {
   let parsed;
@@ -118,20 +107,24 @@ function readField(file, pick, label) {
 }
 
 /** 値は標準入力で渡す。vercel は非対話のとき stdin から読む */
-function putEnv(vercel, options, name, value) {
+function putEnv(options, name, value) {
   const args = ['env', 'add', name, options.targets, '--yes'];
   if (options.force) args.push('--force');
   if (options.sensitive) args.push('--sensitive');
 
   if (options.dryRun) {
-    console.log(`  [dry-run] ${vercel} ${args.join(' ')} <値は標準入力>`);
+    console.log(`  [dry-run] vercel ${args.join(' ')} <値は標準入力>`);
     return true;
   }
 
-  const result = spawnSync(vercel, args, {
+  const result = spawnSync('vercel', args, {
     input: value,
     stdio: ['pipe', 'inherit', 'inherit'],
   });
+
+  if (result.error?.code === 'ENOENT') {
+    throw new UserError('vercel が見つかりません。PATH を確認してください');
+  }
 
   if (result.status === 0) {
     console.log(`  ${name}: 設定しました`);
@@ -152,10 +145,8 @@ function main() {
     return;
   }
 
-  const vercel = resolveVercel();
-
   if (!fs.existsSync(path.join(repoRoot, '.vercel', 'project.json'))) {
-    const message = `Vercel プロジェクトに紐付いていません。先に ${vercel} link を実行してください`;
+    const message = 'Vercel プロジェクトに紐付いていません。先に vercel link を実行してください';
     // dry-run は何も変更しないので、警告だけにして残りの確認を続ける
     if (!options.dryRun) throw new UserError(message);
     console.warn(`警告: ${message}\n`);
@@ -184,7 +175,7 @@ function main() {
   if (!options.sensitive) console.log('注意: --plain のため、値は機微な値として扱われません');
   console.log();
 
-  const failed = values.filter(([name, value]) => !putEnv(vercel, options, name, value));
+  const failed = values.filter(([name, value]) => !putEnv(options, name, value));
 
   if (mcpToken && !options.dryRun) {
     console.log();
@@ -200,7 +191,7 @@ function main() {
   if (options.dryRun) {
     console.log('dry-run のため何も変更していません。');
   } else {
-    console.log(`完了。反映には再デプロイが必要: ${vercel} --prod`);
+    console.log('完了。反映には再デプロイが必要: vercel --prod');
   }
 }
 
