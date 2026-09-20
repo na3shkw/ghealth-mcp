@@ -14,8 +14,14 @@ import {
 const request = vi.fn();
 vi.mock('../src/auth-client.js', () => ({ createAuthClient: () => ({ request }) }));
 
-const { getExercise, getExerciseMinutes, listExercises, listRestingHeartRate, listSleep } =
-  await import('../src/health.js');
+const {
+  getExercise,
+  getExerciseMinutes,
+  listExercises,
+  listRestingHeartRate,
+  listSleep,
+  todayInTokyo,
+} = await import('../src/health.js');
 
 /** 呼び出し n 回目のリクエスト URL を URL オブジェクトで返す */
 const urlOf = (n = 0) => new URL(request.mock.calls[n][0].url);
@@ -486,5 +492,36 @@ describe('getExerciseMinutes', () => {
   it('スコープ不足のエラーはそのまま伝播させる', async () => {
     request.mockRejectedValue(new Error('Required OAuth scope(s) are missing for this operation.'));
     await expect(getExerciseMinutes('3333333333')).rejects.toThrow('Required OAuth scope');
+  });
+});
+
+describe('todayInTokyo', () => {
+  it('UTC の日付ではなく日本時間の日付を返す', () => {
+    // UTC ではまだ前日だが、日本時間では日付が変わっている
+    expect(todayInTokyo(new Date('2026-08-25T16:00:00Z'))).toBe('2026-08-26');
+  });
+
+  it('日本時間の 0 時直前はまだ前日', () => {
+    expect(todayInTokyo(new Date('2026-08-25T14:59:59Z'))).toBe('2026-08-25');
+  });
+
+  it('日本時間の 23 時台でも UTC 側の日付に引きずられない', () => {
+    expect(todayInTokyo(new Date('2026-08-26T13:00:00Z'))).toBe('2026-08-26');
+  });
+});
+
+describe('既定の to は日本時間の今日', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    request.mockResolvedValue({ data: { dataPoints: [] } });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('UTC では前日でも、日本時間の今日までを対象にする', async () => {
+    vi.setSystemTime(new Date('2026-08-25T16:00:00Z'));
+    await listExercises({});
+
+    // 日本時間では 8/26。to を含めるため翌日 0 時未満で切られる
+    expect(urlOf().searchParams.get('filter')).toContain('<"2026-08-27T00:00:00"');
   });
 });

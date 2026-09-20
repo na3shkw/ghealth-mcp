@@ -258,9 +258,20 @@ function shiftDays(isoDay, days) {
   return isoDate(d);
 }
 
-/** from / to の既定値を埋める。to は今日、from は to の 30 日前 */
+const TOKYO_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * 日本時間での「今日」を YYYY-MM-DD で返す。
+ * 実行環境のタイムゾーンは UTC のことがある（Vercel など）ので、
+ * システムのローカル時刻には頼らず日本時間に固定する。
+ */
+export function todayInTokyo(now = new Date()) {
+  return isoDate(new Date(now.getTime() + TOKYO_OFFSET_MS));
+}
+
+/** from / to の既定値を埋める。to は日本時間の今日、from は to の 30 日前 */
 function resolveRange({ from, to } = {}) {
-  const toDay = to ?? isoDate(new Date());
+  const toDay = to ?? todayInTokyo();
   return { fromDay: from ?? shiftDays(toDay, -30), toDay };
 }
 
