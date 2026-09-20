@@ -153,6 +153,37 @@ describe('/mcp の subscriptions/listen', () => {
       }),
     });
 
+  it('接続中に一覧は変わらないので listChanged を宣言しない', async () => {
+    // 宣言するとクライアントが通知を購読しに来て、上記のストリームが開かれてしまう。
+    // ツールを追加したときは再接続時に取り直されるので、これで困らない
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-protocol-version': '2026-07-28',
+        'mcp-method': 'server/discover',
+        'x-api-key': TOKEN,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'server/discover',
+        params: {
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+            'io.modelcontextprotocol/clientInfo': { name: 'test', version: '0.0.0' },
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        },
+      }),
+    });
+
+    const text = await res.text();
+    expect(res.status).toBe(200);
+    expect(text).toContain('"listChanged":false');
+  });
+
   it('受け付けずに即座に応答を閉じる', async () => {
     const res = await listen();
     expect(res.status).toBe(200);

@@ -10,7 +10,11 @@ const mcp = createMcpHandler(createServer, {
   // 居座り続け、タイムアウトエラーと実行時間の浪費になるので受け付けない。
   // このサーバーはツール一覧が固定で通知を送らないため、失うものはない。
   maxSubscriptions: 0,
-  onerror: (e) => console.error(`[mcp] ハンドラー外のエラー: ${e.message}`),
+  onerror: (e) => {
+    // 上記の拒否は想定どおりの動作なので、エラーとして記録しない
+    if (e.message.includes('subscriptions/listen refused')) return;
+    console.error(`[mcp] ハンドラー外のエラー: ${e.message}`);
+  },
 });
 
 const app = new Hono();

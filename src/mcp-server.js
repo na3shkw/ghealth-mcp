@@ -32,7 +32,19 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD 形式で指
  * インスタンス間で状態を共有しないこと。
  */
 export function createServer() {
-  const server = new McpServer({ name: 'ghealth', version: '1.0.0' });
+  // listChanged は「接続中にツール一覧が変わったら通知を送る」という宣言であって、
+  // バージョン間で変わらないという意味ではない。ツールを増やしたときは、
+  // 再接続したクライアントが server/discover で新しい一覧を取り直すので影響しない。
+  // このサーバーは接続中に一覧を変えないうえ、HTTP 版はリクエストごとに
+  // createServer() を呼ぶステートレス構成で通知を送る常駐インスタンスが無いため、
+  // true にすると送れない通知を約束することになる。
+  // 宣言するとクライアントが購読しに来るが、その購読ストリームはサーバーレスと
+  // 相性が悪い (src/index.js の maxSubscriptions の注記を参照)。
+  // 将来ツールを動的に出し分けるようにしたら、ここを true に戻すこと。
+  const server = new McpServer(
+    { name: 'ghealth', version: '1.0.0' },
+    { capabilities: { tools: { listChanged: false } } },
+  );
 
   server.registerTool(
     'list_exercises',

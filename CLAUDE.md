@@ -21,6 +21,7 @@ HTTP 版（`src/index.js`）は Hono アプリを default export しているだ
 
 - ツール定義と入出力スキーマは `src/mcp-server.js` の `createServer()` に集約する。`src/server.js`（stdio）と `src/index.js`（HTTP）は、このファクトリーを起動方法に繋ぐだけ。API 呼び出しと整形は `src/health.js` に置く
 - `createServer()` は HTTP 版ではリクエストごとに呼ばれる。インスタンス間で状態を持たせない
+- **サーバーからの通知と長時間ストリームは使わない。** `tools.listChanged` は `false` を宣言し、`subscriptions/listen` は `maxSubscriptions: 0` で受け付けない。購読ストリームはクライアントが繋いでいる間ずっと開いたままになり、Vercel の関数実行上限 (300 秒) まで居座ってタイムアウトエラーになる。ステートレス構成では通知を送る常駐インスタンスも無い。ツールを増やしても、再接続したクライアントが `server/discover` で取り直すので困らない。ツールを動的に出し分けるようにしたら見直すこと
 - MCP SDK は v2（`@modelcontextprotocol/server`）に統一済み。v1（`@modelcontextprotocol/sdk`）は使わない。`inputSchema` は v2 で素のオブジェクトが非推奨なので `z.object({ ... })` で包む
 - `src/health.js` の整形関数（`summarize`, `detail`, `restingHeartRate`, `sleepSession` など）は純粋関数として export し、テストから直接叩く。ネットワークを使う `list*` / `get*` は `../src/auth-client.js` を `vi.mock` して検証する
 - 新しいデータ型を足すときは「フィルタ組み立て + ページング」の `list*` 関数と、dataPoint 1 件を整形する純粋関数に分ける
