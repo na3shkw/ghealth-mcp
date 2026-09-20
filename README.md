@@ -1,5 +1,9 @@
 # ghealth-mcp
 
+<p align="center">
+  <img src="assets/logo.png" alt="ghealth-mcp のロゴ" width="120">
+</p>
+
 Google Health API に記録された運動・安静時心拍数・睡眠のデータを Claude から参照するための MCP サーバー。手元では stdio、Vercel 上では HTTP（ストリーマブル HTTP）で、同じツールを提供する。
 
 単位変換や整形はサーバー側で済ませ、モデルにミリメートルや秒/メートルの計算をさせない方針。距離は km、時間は `M:SS`（1 時間を超えると `H:MM:SS`）、ペースは `M:SS/km` のように、そのまま読める形で返す。
