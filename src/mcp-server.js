@@ -7,6 +7,7 @@ import {
   listRestingHeartRate,
   listSleep,
 } from './health.js';
+import { icons } from './icon.js';
 
 const json = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
 const fail = (e) => ({
@@ -42,7 +43,7 @@ export function createServer() {
   // 相性が悪い (src/index.js の maxSubscriptions の注記を参照)。
   // 将来ツールを動的に出し分けるようにしたら、ここを true に戻すこと。
   const server = new McpServer(
-    { name: 'ghealth', version: '1.0.0' },
+    { name: 'ghealth', version: '1.0.0', icons },
     { capabilities: { tools: { listChanged: false } } },
   );
 

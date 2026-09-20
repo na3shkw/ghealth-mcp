@@ -199,3 +199,18 @@ describe('/mcp の subscriptions/listen', () => {
     expect(closed).toContain('Subscription limit reached');
   });
 });
+
+describe('/mcp の serverInfo', () => {
+  beforeEach(() => {
+    process.env.GHEALTH_MCP_TOKEN = TOKEN;
+  });
+  afterEach(() => {
+    delete process.env.GHEALTH_MCP_TOKEN;
+  });
+
+  it('initialize の応答にアイコンが含まれる', async () => {
+    const res = await initialize({ 'x-api-key': TOKEN });
+    const text = await res.text();
+    expect(text).toContain('"icons":[{"src":"data:image/png;base64,');
+  });
+});
