@@ -15,7 +15,9 @@
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "google-auth-library": "^11.0.2",
+    "hono": "^4.13.8",
     "zod": "^4.4.3"
   },
   "bin": {

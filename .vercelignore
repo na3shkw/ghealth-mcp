@@ -1,5 +1,4 @@
-node_modules/
-
 client_secret.json
 token.json
-.vercel
+tmp/
+.claude/
