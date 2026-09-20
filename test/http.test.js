@@ -1,5 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import app from '../src/index.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const request = vi.fn();
+vi.mock('../src/auth-client.js', () => ({ createAuthClient: () => ({ request }) }));
+
+const app = (await import('../src/index.js')).default;
 
 const TOKEN = 'test-token-not-a-real-secret';
 
@@ -63,20 +67,54 @@ describe('/mcp の認証', () => {
 describe('/mcp のツール', () => {
   beforeEach(() => {
     process.env.GHEALTH_MCP_TOKEN = TOKEN;
+    request.mockReset();
   });
   afterEach(() => {
     delete process.env.GHEALTH_MCP_TOKEN;
   });
 
-  it('ping ツールが tools/list に載り、呼び出すと pong を返す', async () => {
-    const headers = { 'x-api-key': TOKEN };
+  it('5 つのツールが tools/list に載る', async () => {
+    const res = await rpc('tools/list', {}, { 'x-api-key': TOKEN });
+    expect(res.status).toBe(200);
 
-    const list = await rpc('tools/list', {}, headers);
-    expect(list.status).toBe(200);
-    expect(await list.text()).toContain('"ping"');
+    const text = await res.text();
+    for (const name of [
+      'list_exercises',
+      'get_exercise',
+      'get_exercise_minutes',
+      'get_resting_heart_rate',
+      'get_sleep',
+    ]) {
+      expect(text).toContain(`"${name}"`);
+    }
+  });
 
-    const call = await rpc('tools/call', { name: 'ping', arguments: {} }, headers);
-    expect(call.status).toBe(200);
-    expect(await call.text()).toContain('pong');
+  it('tools/call で整形済みの結果を返す', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [] } });
+
+    const res = await rpc(
+      'tools/call',
+      { name: 'list_exercises', arguments: { from: '2026-03-01', to: '2026-03-02' } },
+      { 'x-api-key': TOKEN },
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('[]');
+    expect(request).toHaveBeenCalled();
+  });
+
+  it('ツールが投げた例外は isError の結果になる', async () => {
+    request.mockRejectedValue(new Error('ダミーの失敗'));
+
+    const res = await rpc(
+      'tools/call',
+      { name: 'list_exercises', arguments: {} },
+      { 'x-api-key': TOKEN },
+    );
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('ダミーの失敗');
+    expect(text).toContain('isError');
   });
 });
