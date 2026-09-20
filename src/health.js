@@ -258,20 +258,32 @@ function shiftDays(isoDay, days) {
   return isoDate(d);
 }
 
-const TOKYO_OFFSET_MS = 9 * 60 * 60 * 1000;
+/**
+ * 「今日」を決めるタイムゾーン。
+ * 実行環境のローカル時刻は UTC のことがある（Vercel など）ので、システムの
+ * タイムゾーンには頼らず明示的に決める。既定は日本時間。
+ * `TZ` を見ないのは、Vercel では UTC が入っていて意図せず日付がずれるため。
+ */
+const DEFAULT_TIME_ZONE = process.env.GHEALTH_TZ || 'Asia/Tokyo';
 
 /**
- * 日本時間での「今日」を YYYY-MM-DD で返す。
- * 実行環境のタイムゾーンは UTC のことがある（Vercel など）ので、
- * システムのローカル時刻には頼らず日本時間に固定する。
+ * 指定タイムゾーンでの「今日」を YYYY-MM-DD で返す。
+ * 固定オフセットを足すのではなく Intl に解決させるので、
+ * サマータイムのあるタイムゾーンを指定しても日付がずれない。
  */
-export function todayInTokyo(now = new Date()) {
-  return isoDate(new Date(now.getTime() + TOKYO_OFFSET_MS));
+export function todayInZone(now = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  // en-CA は YYYY-MM-DD 形式
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
 }
 
-/** from / to の既定値を埋める。to は日本時間の今日、from は to の 30 日前 */
+/** from / to の既定値を埋める。to は DEFAULT_TIME_ZONE での今日、from は to の 30 日前 */
 function resolveRange({ from, to } = {}) {
-  const toDay = to ?? todayInTokyo();
+  const toDay = to ?? todayInZone();
   return { fromDay: from ?? shiftDays(toDay, -30), toDay };
 }
 

@@ -39,8 +39,8 @@ export function createServer() {
   // このサーバーは接続中に一覧を変えないうえ、HTTP 版はリクエストごとに
   // createServer() を呼ぶステートレス構成で通知を送る常駐インスタンスが無いため、
   // true にすると送れない通知を約束することになる。
-  // 宣言するとクライアントが購読しに来るが、その購読ストリームはサーバーレスと
-  // 相性が悪い (src/index.js の maxSubscriptions の注記を参照)。
+  // 宣言するとクライアントが購読しに来るが、その購読ストリームは Vercel の
+  // 関数実行上限と相性が悪い (src/index.js の maxSubscriptions の注記を参照)。
   // 将来ツールを動的に出し分けるようにしたら、ここを true に戻すこと。
   const server = new McpServer(
     { name: 'ghealth', version: '1.0.0', icons },

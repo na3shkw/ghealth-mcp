@@ -20,7 +20,7 @@ const {
   listExercises,
   listRestingHeartRate,
   listSleep,
-  todayInTokyo,
+  todayInZone,
 } = await import('../src/health.js');
 
 /** 呼び出し n 回目のリクエスト URL を URL オブジェクトで返す */
@@ -495,18 +495,30 @@ describe('getExerciseMinutes', () => {
   });
 });
 
-describe('todayInTokyo', () => {
+describe('todayInZone', () => {
   it('UTC の日付ではなく日本時間の日付を返す', () => {
     // UTC ではまだ前日だが、日本時間では日付が変わっている
-    expect(todayInTokyo(new Date('2026-08-25T16:00:00Z'))).toBe('2026-08-26');
+    expect(todayInZone(new Date('2026-08-25T16:00:00Z'))).toBe('2026-08-26');
   });
 
   it('日本時間の 0 時直前はまだ前日', () => {
-    expect(todayInTokyo(new Date('2026-08-25T14:59:59Z'))).toBe('2026-08-25');
+    expect(todayInZone(new Date('2026-08-25T14:59:59Z'))).toBe('2026-08-25');
   });
 
   it('日本時間の 23 時台でも UTC 側の日付に引きずられない', () => {
-    expect(todayInTokyo(new Date('2026-08-26T13:00:00Z'))).toBe('2026-08-26');
+    expect(todayInZone(new Date('2026-08-26T13:00:00Z'))).toBe('2026-08-26');
+  });
+
+  it('タイムゾーンを渡すとその地域の日付になる', () => {
+    const t = new Date('2026-08-25T16:00:00Z');
+    expect(todayInZone(t, 'UTC')).toBe('2026-08-25');
+    expect(todayInZone(t, 'America/New_York')).toBe('2026-08-25');
+  });
+
+  it('サマータイムのあるタイムゾーンでも日付がずれない', () => {
+    // 夏 (EDT, UTC-4) の 20:30 と 冬 (EST, UTC-5) の 19:30。どちらも現地では同じ日
+    expect(todayInZone(new Date('2026-07-16T00:30:00Z'), 'America/New_York')).toBe('2026-07-15');
+    expect(todayInZone(new Date('2026-01-16T00:30:00Z'), 'America/New_York')).toBe('2026-01-15');
   });
 });
 

@@ -1,3 +1,7 @@
+// HTTP トランスポート経由の振る舞いをまとめて見るテスト。
+// 対象は src/index.js（Hono アプリ）と、そこに挟まる src/api-key.js。
+// ソースと 1 対 1 に対応させず、「HTTP で叩いたときに何が起きるか」で切っている。
+// Google Health API は auth-client ごとモックするので、外に出る通信は無い。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const request = vi.fn();

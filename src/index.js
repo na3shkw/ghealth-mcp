@@ -6,8 +6,9 @@ import { apiKeyAuth } from './api-key.js';
 // createMcpHandler はリクエストごとに createServer を呼ぶステートレス構成
 const mcp = createMcpHandler(createServer, {
   // subscriptions/listen は通知を受け取るための長時間ストリームで、クライアントが
-  // 繋いでいる間ずっと開いたままになる。サーバーレスでは関数の実行上限 (300 秒) まで
-  // 居座り続け、タイムアウトエラーと実行時間の浪費になるので受け付けない。
+  // 繋いでいる間ずっと開いたままになる。Vercel の関数は実行上限 (300 秒) を過ぎると
+  // 打ち切られるため、その上限まで居座ったうえでタイムアウトエラーになり、
+  // 実行時間も浪費する。そのため受け付けない。
   // このサーバーはツール一覧が固定で通知を送らないため、失うものはない。
   maxSubscriptions: 0,
   onerror: (e) => {
