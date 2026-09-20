@@ -10,18 +10,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // 認証情報ファイルの場所。src/auth-client.js と同じ環境変数で上書きできる
-const clientSecretPath = process.env.GHEALTH_CLIENT_SECRET
-  ? path.resolve(process.env.GHEALTH_CLIENT_SECRET)
-  : path.join(repoRoot, 'client_secret.json');
-const tokenPath = process.env.GHEALTH_TOKEN
-  ? path.resolve(process.env.GHEALTH_TOKEN)
-  : path.join(repoRoot, 'token.json');
+const credentialPath = (envName, fallback) =>
+  process.env[envName] ? path.resolve(process.env[envName]) : path.join(repoRoot, fallback);
+
+const clientSecretPath = credentialPath('GHEALTH_CLIENT_SECRET', 'client_secret.json');
+const tokenPath = credentialPath('GHEALTH_TOKEN', 'token.json');
+
+function fail(message) {
+  console.error(`エラー: ${message}`);
+  process.exit(1);
+}
 
 const USAGE = `手元の認証情報ファイルから値を取り出して Vercel の環境変数に設定する。
 
@@ -44,163 +49,116 @@ const USAGE = `手元の認証情報ファイルから値を取り出して Verc
 
 前提:
   - 手元のセットアップ (クライアント情報の配置と npm run auth) が済んでいること
-  - vercel link 済みであること
+  - vercel link 済みで、vercel に PATH が通っていること
 `;
 
-class UserError extends Error {}
-
-function parseArgs(argv) {
-  const options = {
-    targets: 'production',
-    force: false,
-    mcpToken: false,
-    sensitive: true,
-    dryRun: false,
-  };
-
-  for (let i = 0; i < argv.length; i++) {
-    switch (argv[i]) {
-      case '--env':
-        if (!argv[++i]) throw new UserError('--env には対象の環境を指定してください');
-        options.targets = argv[i];
-        break;
-      case '--force':
-        options.force = true;
-        break;
-      case '--mcp-token':
-        options.mcpToken = true;
-        break;
-      case '--plain':
-        options.sensitive = false;
-        break;
-      case '--dry-run':
-        options.dryRun = true;
-        break;
-      case '-h':
-      case '--help':
-        return null;
-      default:
-        throw new UserError(`知らないオプションです: ${argv[i]}（--help で使い方を表示）`);
-    }
-  }
-  return options;
+let opts;
+try {
+  ({ values: opts } = parseArgs({
+    options: {
+      env: { type: 'string', default: 'production' },
+      force: { type: 'boolean', default: false },
+      'mcp-token': { type: 'boolean', default: false },
+      plain: { type: 'boolean', default: false },
+      'dry-run': { type: 'boolean', default: false },
+      help: { type: 'boolean', short: 'h', default: false },
+    },
+  }));
+} catch (e) {
+  fail(`オプションの指定が不正です（--help で使い方を表示）: ${e.message}`);
 }
 
-/** JSON から 1 つのフィールドを取り出す。値そのものは表示しない */
-function readField(file, pick, label) {
-  let parsed;
-  try {
-    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (e) {
-    if (e.code === 'ENOENT') throw new UserError(`${label} の取得元が見つかりません: ${file}`);
-    throw new UserError(`${file} の読み取りに失敗しました: ${e.message}`);
-  }
+if (opts.help) {
+  console.log(USAGE);
+  process.exit(0);
+}
 
-  const value = pick(parsed);
-  if (typeof value !== 'string' || value === '') {
-    throw new UserError(`${label} が ${file} に入っていません`);
+if (!fs.existsSync(path.join(repoRoot, '.vercel', 'project.json'))) {
+  const message = 'Vercel プロジェクトに紐付いていません。先に vercel link を実行してください';
+  // dry-run は何も変更しないので、警告だけにして残りの確認を続ける
+  if (!opts['dry-run']) fail(message);
+  console.warn(`警告: ${message}\n`);
+}
+
+/** 認証情報の JSON を読む。中身はどこにも表示しない */
+function readJson(file, label) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    if (e.code === 'ENOENT') fail(`${label}の取得元が見つかりません: ${file}`);
+    fail(`${file} の読み取りに失敗しました: ${e.message}`);
   }
-  if (value.includes('\n')) {
-    throw new UserError(`${label} が複数行になっています: ${file}`);
-  }
+}
+
+/** 環境変数に入れられる 1 行の文字列であることを確かめる */
+function field(value, label, file) {
+  if (typeof value !== 'string' || value === '') fail(`${label}が ${file} に入っていません`);
+  if (value.includes('\n')) fail(`${label}が複数行になっています: ${file}`);
   return value;
 }
 
 /** 値は標準入力で渡す。vercel は非対話のとき stdin から読む */
-function putEnv(options, name, value) {
-  const args = ['env', 'add', name, options.targets, '--yes'];
-  if (options.force) args.push('--force');
-  if (options.sensitive) args.push('--sensitive');
+function putEnv(name, value) {
+  const args = ['env', 'add', name, opts.env, '--yes'];
+  if (opts.force) args.push('--force');
+  if (!opts.plain) args.push('--sensitive');
 
-  if (options.dryRun) {
+  if (opts['dry-run']) {
     console.log(`  [dry-run] vercel ${args.join(' ')} <値は標準入力>`);
     return true;
   }
 
-  const result = spawnSync('vercel', args, {
+  const { status, error } = spawnSync('vercel', args, {
     input: value,
     stdio: ['pipe', 'inherit', 'inherit'],
   });
 
-  if (result.error?.code === 'ENOENT') {
-    throw new UserError('vercel が見つかりません。PATH を確認してください');
-  }
-
-  if (result.status === 0) {
+  if (error?.code === 'ENOENT') fail('vercel が見つかりません。PATH を確認してください');
+  if (status === 0) {
     console.log(`  ${name}: 設定しました`);
     return true;
   }
 
   console.error(`  ${name}: 失敗しました`);
-  if (!options.force) {
-    console.error('  既に同じ環境にある場合は --force を付けて実行してください');
-  }
+  if (!opts.force) console.error('  既に同じ環境にある場合は --force を付けて実行してください');
   return false;
 }
 
-function main() {
-  const options = parseArgs(process.argv.slice(2));
-  if (options === null) {
-    console.log(USAGE);
-    return;
-  }
+// 1 つでも欠けていたら何も設定せずに終わるよう、先に全部読む
+const client = readJson(clientSecretPath, 'クライアント情報');
+const token = readJson(tokenPath, 'トークン');
 
-  if (!fs.existsSync(path.join(repoRoot, '.vercel', 'project.json'))) {
-    const message = 'Vercel プロジェクトに紐付いていません。先に vercel link を実行してください';
-    // dry-run は何も変更しないので、警告だけにして残りの確認を続ける
-    if (!options.dryRun) throw new UserError(message);
-    console.warn(`警告: ${message}\n`);
-  }
+const entries = [
+  ['GHEALTH_CLIENT_ID', field(client?.installed?.client_id, 'クライアント ID', clientSecretPath)],
+  [
+    'GHEALTH_CLIENT_SECRET',
+    field(client?.installed?.client_secret, 'クライアントシークレット', clientSecretPath),
+  ],
+  ['GHEALTH_REFRESH_TOKEN', field(token?.refresh_token, 'リフレッシュトークン', tokenPath)],
+];
 
-  // 1 つでも欠けていたら何も設定せずに終わるよう、先に全部読む
-  const values = [
-    ['GHEALTH_CLIENT_ID', readField(clientSecretPath, (j) => j?.installed?.client_id, 'クライアント ID')],
-    [
-      'GHEALTH_CLIENT_SECRET',
-      readField(clientSecretPath, (j) => j?.installed?.client_secret, 'クライアントシークレット'),
-    ],
-    [
-      'GHEALTH_REFRESH_TOKEN',
-      readField(tokenPath, (j) => j?.refresh_token, 'リフレッシュトークン'),
-    ],
-  ];
-
-  let mcpToken;
-  if (options.mcpToken) {
-    mcpToken = randomBytes(32).toString('hex');
-    values.push(['GHEALTH_MCP_TOKEN', mcpToken]);
-  }
-
-  console.log(`対象の環境: ${options.targets}`);
-  if (!options.sensitive) console.log('注意: --plain のため、値は機微な値として扱われません');
-  console.log();
-
-  const failed = values.filter(([name, value]) => !putEnv(options, name, value));
-
-  if (mcpToken && !options.dryRun) {
-    console.log();
-    console.log('生成した GHEALTH_MCP_TOKEN（claude.ai のコネクタの x-api-key に設定する）:');
-    console.log(`  ${mcpToken}`);
-    console.log('この値はここでしか表示されない。');
-  }
-
-  console.log();
-  if (failed.length > 0) {
-    throw new UserError(`設定できなかった環境変数があります: ${failed.map(([n]) => n).join(', ')}`);
-  }
-  if (options.dryRun) {
-    console.log('dry-run のため何も変更していません。');
-  } else {
-    console.log('完了。反映には再デプロイが必要: vercel --prod');
-  }
+let mcpToken;
+if (opts['mcp-token']) {
+  mcpToken = randomBytes(32).toString('hex');
+  entries.push(['GHEALTH_MCP_TOKEN', mcpToken]);
 }
 
-try {
-  main();
-} catch (e) {
-  if (e instanceof UserError) {
-    console.error(`エラー: ${e.message}`);
-    process.exit(1);
-  }
-  throw e;
+console.log(`対象の環境: ${opts.env}`);
+if (opts.plain) console.log('注意: --plain のため、値は機微な値として扱われません');
+console.log();
+
+const failed = entries.filter(([name, value]) => !putEnv(name, value)).map(([name]) => name);
+
+if (mcpToken && !opts['dry-run']) {
+  console.log('\n生成した GHEALTH_MCP_TOKEN（claude.ai のコネクタの x-api-key に設定する）:');
+  console.log(`  ${mcpToken}`);
+  console.log('この値はここでしか表示されない。');
 }
+
+console.log();
+if (failed.length > 0) fail(`設定できなかった環境変数があります: ${failed.join(', ')}`);
+console.log(
+  opts['dry-run']
+    ? 'dry-run のため何も変更していません。'
+    : '完了。反映には再デプロイが必要: vercel --prod',
+);
