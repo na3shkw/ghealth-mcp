@@ -160,14 +160,15 @@ export function restingHeartRate(dataPoint) {
 
 /**
  * HRV の dataPoint を `{ localDate, avgRmssdMs, deepSleepRmssdMs }` に整形する。
- * avg はその日の睡眠全体、deepSleep は深い睡眠中だけの RMSSD
+ * avg はその日の睡眠全体、deepSleep は深い睡眠中だけの RMSSD。
+ * Google Health アプリの表示に合わせて整数に丸める
  */
 export function heartRateVariability(dataPoint) {
   const hrv = dataPoint.dailyHeartRateVariability ?? {};
   return {
     localDate: toIsoDay(hrv.date),
-    avgRmssdMs: num(hrv.averageHeartRateVariabilityMilliseconds),
-    deepSleepRmssdMs: num(hrv.deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds),
+    avgRmssdMs: round(num(hrv.averageHeartRateVariabilityMilliseconds), 0),
+    deepSleepRmssdMs: round(num(hrv.deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds), 0),
   };
 }
 

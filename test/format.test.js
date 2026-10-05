@@ -250,11 +250,11 @@ describe('restingHeartRate', () => {
 });
 
 describe('heartRateVariability', () => {
-  it('日付と平均・深い睡眠中の RMSSD を返す', () => {
+  it('日付と平均・深い睡眠中の RMSSD を整数に丸めて返す', () => {
     expect(heartRateVariability(hrvDataPoint)).toEqual({
       localDate: '2026-03-01',
-      avgRmssdMs: 40.5,
-      deepSleepRmssdMs: 35.25,
+      avgRmssdMs: 41,
+      deepSleepRmssdMs: 35,
     });
   });
 

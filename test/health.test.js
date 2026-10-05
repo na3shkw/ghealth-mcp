@@ -357,7 +357,7 @@ describe('listHeartRateVariability', () => {
     request.mockResolvedValue({ data: { dataPoints: [hrvDataPoint] } });
 
     expect(await listHeartRateVariability({})).toEqual([
-      { localDate: '2026-03-01', avgRmssdMs: 40.5, deepSleepRmssdMs: 35.25 },
+      { localDate: '2026-03-01', avgRmssdMs: 41, deepSleepRmssdMs: 35 },
     ]);
   });
 
