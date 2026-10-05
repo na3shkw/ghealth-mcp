@@ -8,14 +8,11 @@ import { createServer } from './mcp-server.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** `git wt` の既定の基本ディレクトリ */
-const WORKTREE_BASE = '.wt';
-
 /**
- * 起動先の worktree 名を返す。実際の環境変数を優先し、無ければ .env から読む。
- * .env のほかの変数（GHEALTH_TZ など）は取り込まない。起動の仕方で挙動が変わらないようにするため
+ * 起動先の worktree のパスを返す。実際の環境変数を優先し、無ければ .env から読む。
+ * 起動の仕方で挙動が変わらないようにするため .env のほかの変数は取り込まない。
  */
-export function worktreeName({ env, readFile, root }) {
+export function worktreePath({ env, readFile, root }) {
   if (env.GHEALTH_WORKTREE) return env.GHEALTH_WORKTREE;
 
   let text;
@@ -28,22 +25,10 @@ export function worktreeName({ env, readFile, root }) {
   return parseEnv(text).GHEALTH_WORKTREE || undefined;
 }
 
-/** worktree の mcp-server.js の絶対パス。基本ディレクトリの外を指す名前は受け付けない */
-export function worktreeModulePath(root, name) {
-  const base = path.join(root, WORKTREE_BASE);
-  const dir = path.resolve(base, name);
-  const rel = path.relative(base, dir);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error(`GHEALTH_WORKTREE には ${WORKTREE_BASE}/ 直下の worktree 名を指定してください: ${name}`);
-  }
-  return path.join(dir, 'src', 'mcp-server.js');
-}
-
 const defaultDeps = () => ({
   root: repoRoot,
   env: process.env,
   readFile: (file) => fs.readFileSync(file, 'utf8'),
-  exists: (file) => fs.existsSync(file),
   importModule: (url) => import(url),
   serve: serveStdio,
   // 標準出力は MCP の通信路なので、ログは必ず標準エラーに出す
@@ -57,33 +42,20 @@ const defaultDeps = () => ({
 export async function main(argv, deps = defaultDeps()) {
   if (!argv.includes('--worktree')) return deps.serve(createServer);
 
-  const name = worktreeName(deps);
-  if (!name) {
+  const worktree = worktreePath(deps);
+  if (!worktree) {
     deps.log('GHEALTH_WORKTREE が未設定のため、このリポジトリのツール定義で起動します');
     return deps.serve(createServer);
   }
 
-  // 指定を誤ったまま黙ってこのリポジトリで起動すると、古いコードを確かめていることに気付けない
-  const modulePath = worktreeModulePath(deps.root, name);
-  if (!deps.exists(modulePath)) throw new Error(`worktree が見つかりません: ${modulePath}`);
-
-  // worktree には認証情報ファイルを置かない。worktree 側の auth-client.js は
-  // 自分のリポジトリ直下を読みに行くため、こちらで読んだ値を環境変数の経路で渡す
-  const { credentialEntries, credentialPaths, readJson } = await import(
-    '../scripts/set-vercel-env.js'
-  );
-  const { clientSecretPath, tokenPath } = credentialPaths(deps.root);
-  const client = readJson(clientSecretPath, 'クライアント情報', deps.readFile);
-  const token = readJson(tokenPath, 'トークン', deps.readFile);
-  for (const [key, value] of credentialEntries(client, token, clientSecretPath, tokenPath)) {
-    deps.env[key] = value;
-  }
+  // 相対パスは起動時のカレントディレクトリではなく、このリポジトリ直下を起点にする
+  const modulePath = path.resolve(deps.root, worktree, 'src', 'mcp-server.js');
 
   const mod = await deps.importModule(pathToFileURL(modulePath).href);
   if (typeof mod.createServer !== 'function') {
     throw new Error(`createServer が export されていません: ${modulePath}`);
   }
-  deps.log(`worktree ${name} のツール定義で起動します`);
+  deps.log(`worktree のツール定義で起動します: ${modulePath}`);
   return deps.serve(mod.createServer);
 }
 

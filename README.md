@@ -225,18 +225,19 @@ node scripts/dump-health-api.js dataTypes/exercise/dataPoints
 
 ### worktree のブランチを stdio で試す
 
-`src/server.js` に `--worktree` を付けて起動すると、`GHEALTH_WORKTREE` で指定した worktree（`.wt/<名前>`）のツール定義で起動する。Claude Desktop などに登録した起動コマンドに `--worktree` を足しておけば、試すブランチを変えるたびに登録を書き換えずに済む。
+`src/server.js` に `--worktree` を付けて起動すると、`GHEALTH_WORKTREE` で指定した worktree のツール定義で起動する。値は worktree のパスで、相対パスならこのリポジトリ直下を起点にする。Claude Desktop などに登録した起動コマンドに `--worktree` を足しておけば、試すブランチを変えるたびに登録を書き換えずに済む。
 
 ```bash
-# .env（gitignore 済み）に書く。実際の環境変数があればそちらを優先する
-GHEALTH_WORKTREE=add-hrv
+# .env に書く。実際の環境変数があればそちらを優先する
+GHEALTH_WORKTREE=<worktree のパス>
 ```
 
 - `GHEALTH_WORKTREE` が未設定なら、このリポジトリのツール定義で起動する
-- 指定した worktree が無いときは、起動せずにエラーで終わる
-- 認証情報はこのリポジトリ直下のファイルから読み、環境変数の経路で worktree 側に渡す。worktree に認証情報ファイルを置く必要は無い
+- 指定したパスにツール定義（`src/mcp-server.js`）が無いときは、起動せずにエラーで終わる
+- 認証情報と依存パッケージは worktree 側のものを使う。worktree に認証情報ファイルが無ければ、このリポジトリ直下からコピーするか、worktree で `npm run auth` を実行する
 - `.env` から読むのは `GHEALTH_WORKTREE` だけで、ほかの変数は取り込まない
-- 切り替えた後は MCP クライアントの再起動が要る
+- worktree に `node_modules` が無ければ、先にそこで `npm install` を実行する
+- 切り替えた後は MCP クライアントの再起動が必要
 
 ## 構成
 
@@ -257,7 +258,7 @@ GHEALTH_WORKTREE=add-hrv
 | `test/http.test.js` | `src/index.js` + `src/api-key.js` のテスト。`app.request('/mcp', ...)` で認証・ツール呼び出し・`serverInfo` を検証する |
 | `test/auth-client.test.js` | `src/auth-client.js` のテスト。環境変数経路とファイル経路の切り替え |
 | `test/icon.test.js` | `src/icon.js` のテスト |
-| `test/worktree.test.js` | `src/server.js` の `--worktree` のテスト。起動先の解決と認証情報の受け渡し |
+| `test/worktree.test.js` | `src/server.js` の `--worktree` のテスト。起動先の解決 |
 | `test/scripts/` | `scripts/` のテスト。本番コードのテストと混ざらないよう分けている |
 
-`src/mcp-server.js` は `test/http.test.js` が `/mcp` 越しに呼ぶことで、ツール定義と入力スキーマまで一緒に検証される。直接のテストが無いのは `src/auth.js`（ブラウザでの同意が要る）と `scripts/dump-health-api.js`（調査用）の 2 つ。
+`src/mcp-server.js` は `test/http.test.js` が `/mcp` 越しに呼ぶことで、ツール定義と入力スキーマまで一緒に検証される。直接のテストが無いのは `src/auth.js`（ブラウザでの同意が必要）と `scripts/dump-health-api.js`（調査用）の 2 つ。

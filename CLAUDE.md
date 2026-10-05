@@ -15,7 +15,7 @@ npm run vercel:env -- --dry-run   # Vercel の環境変数に何を設定する�
 
 サーバー本体（`npm start`）は stdio トランスポートなので手で起動しても対話できない。動作確認は vitest か、登録済みの `ghealth` MCP ツール経由で行う。JSON-RPC を直接流し込みたい場合は、`initialize` → `notifications/initialized` → 本命のリクエストを 1 行ずつ `node src/server.js` にパイプする。
 
-worktree のブランチを stdio で試すときは `node src/server.js --worktree` で起動し、`.env` の `GHEALTH_WORKTREE` に worktree 名を書く（詳細は README.md）。読み込むのは worktree の `src/mcp-server.js` なので、各ブランチの `mcp-server.js` は `createServer` を export し続けること。`.env` には `GHEALTH_WORKTREE` 以外を置かず、とくにシークレットは置かない（認証情報は専用ファイルにだけ置く）。
+worktree のブランチを stdio で試すときは `node src/server.js --worktree` で起動し、`.env` の `GHEALTH_WORKTREE` に worktree のパスを書く（詳細は README.md）。読み込むのは worktree の `src/mcp-server.js` なので、各ブランチの `mcp-server.js` は `createServer` を export し続けること。`.env` には `GHEALTH_WORKTREE` 以外を置かず、とくにシークレットは置かない（認証情報は専用ファイルにだけ置く）。
 
 HTTP 版（`src/index.js`）は Hono アプリを default export しているだけなので、テストからは `app.request('/mcp', ...)` で直接叩ける。サーバーを立てる必要はない。
 
