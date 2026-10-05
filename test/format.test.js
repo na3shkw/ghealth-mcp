@@ -7,6 +7,7 @@ import {
   formatPace,
   num,
   parseSeconds,
+  heartRateVariability,
   restingHeartRate,
   sleepOnsetMinutes,
   sleepSession,
@@ -20,6 +21,7 @@ import {
   exerciseWithEvents,
   heartRatePoint,
   phoneSource,
+  hrvDataPoint,
   restingHeartRateDataPoint,
   runningDataPoint,
   sleepDataPoint,
@@ -244,6 +246,24 @@ describe('restingHeartRate', () => {
 
   it('値が欠けていても落ちない', () => {
     expect(restingHeartRate({})).toEqual({ localDate: undefined, bpm: undefined });
+  });
+});
+
+describe('heartRateVariability', () => {
+  it('日付と平均・深い睡眠中の RMSSD を返す', () => {
+    expect(heartRateVariability(hrvDataPoint)).toEqual({
+      localDate: '2026-03-01',
+      avgRmssdMs: 40.5,
+      deepSleepRmssdMs: 35.25,
+    });
+  });
+
+  it('値が欠けていても落ちない', () => {
+    expect(heartRateVariability({})).toEqual({
+      localDate: undefined,
+      avgRmssdMs: undefined,
+      deepSleepRmssdMs: undefined,
+    });
   });
 });
 

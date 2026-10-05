@@ -4,7 +4,7 @@
   <img src="assets/logo.png" alt="ghealth-mcp のロゴ" width="120">
 </p>
 
-Google Health API に記録された運動・安静時心拍数・睡眠のデータを参照するための MCP サーバー。
+Google Health API に記録された運動・安静時心拍数・心拍変動・睡眠のデータを参照するための MCP サーバー。
 
 ストリーマブル HTTP のリモート MCP サーバーとして動かすことを前提とし、デプロイ先は Vercel を想定している。そのため常駐プロセスを持たないステートレス構成で、リクエストごとにサーバーインスタンスを作る。stdio でも起動でき、ツールの実装は両方で共通。
 
@@ -117,7 +117,7 @@ claude.ai のカスタムコネクタに登録するときは、認証方式を�
 | `to` | 終了日（この日を含む）。省略時は今日 |
 | `limit` | 最大件数。既定 20、上限 200 |
 
-`from` / `to` を省略したときの「今日」は `GHEALTH_TZ`（既定 `Asia/Tokyo`）で決まる。実行環境のタイムゾーンが UTC でもずれない。この扱いは `get_resting_heart_rate` / `get_sleep` でも同じ。
+`from` / `to` を省略したときの「今日」は `GHEALTH_TZ`（既定 `Asia/Tokyo`）で決まる。実行環境のタイムゾーンが UTC でもずれない。この扱いは `get_resting_heart_rate` / `get_hrv` / `get_sleep` でも同じ。
 
 | 出力 | 説明 |
 | --- | --- |
@@ -182,6 +182,16 @@ claude.ai のカスタムコネクタに登録するときは、認証方式を�
 | --- | --- |
 | `localDate` | 日付（`YYYY-MM-DD`） |
 | `bpm` | その日の安静時心拍数（拍/分） |
+
+### `get_hrv`
+
+日ごとの心拍変動（RMSSD）を日付の昇順で返す。入力は `from` / `to`。値は睡眠中に測ったもの。
+
+| 出力 | 説明 |
+| --- | --- |
+| `localDate` | 日付（`YYYY-MM-DD`） |
+| `avgRmssdMs` | 睡眠全体の平均 RMSSD（ミリ秒） |
+| `deepSleepRmssdMs` | 深い睡眠中の RMSSD（ミリ秒） |
 
 ### `get_sleep`
 
