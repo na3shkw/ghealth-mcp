@@ -4,6 +4,7 @@ import {
   getExercise,
   getExerciseMinutes,
   listExercises,
+  listHeartRateVariability,
   listRestingHeartRate,
   listSleep,
 } from './health.js';
@@ -105,6 +106,21 @@ export function createServer() {
       }),
     },
     guard((args) => listRestingHeartRate(args)),
+  );
+
+  server.registerTool(
+    'get_hrv',
+    {
+      title: '心拍変動 (HRV)',
+      description:
+        '日ごとの心拍変動 (RMSSD, ミリ秒) を日付の昇順で返す。睡眠中に測った値で、'
+        + 'avgRmssdMs は睡眠全体の平均、deepSleepRmssdMs は深い睡眠中の値。',
+      inputSchema: z.object({
+        from: isoDate.optional().describe('開始日 (ローカル日付)。省略時は to の 30 日前'),
+        to: isoDate.optional().describe('終了日 (ローカル日付, この日を含む)。省略時は今日'),
+      }),
+    },
+    guard((args) => listHeartRateVariability(args)),
   );
 
   server.registerTool(

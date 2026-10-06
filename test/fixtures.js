@@ -88,6 +88,27 @@ export const restingHeartRateOn = (year, month, day, bpm) => ({
   },
 });
 
+/** 心拍変動の 1 日分。RMSSD は double なので数値で来る */
+export const hrvDataPoint = {
+  dataSource: { recordingMethod: 'DERIVED', device: { displayName: 'Watch' }, platform: 'FITBIT' },
+  dailyHeartRateVariability: {
+    date: { year: 2026, month: 3, day: 1 },
+    averageHeartRateVariabilityMilliseconds: 40.5,
+    nonRemHeartRateBeatsPerMinute: '50',
+    entropy: 3,
+    deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds: 35.25,
+  },
+};
+
+export const hrvOn = (year, month, day, avg) => ({
+  ...hrvDataPoint,
+  dailyHeartRateVariability: {
+    ...hrvDataPoint.dailyHeartRateVariability,
+    date: { year, month, day },
+    averageHeartRateVariabilityMilliseconds: avg,
+  },
+});
+
 /**
  * ステージ付きの睡眠 1 件。実 API のレスポンス構造に合わせたダミー値。
  * stages と shortAwakenings は実レスポンスと同じ件数だけ並べてある。

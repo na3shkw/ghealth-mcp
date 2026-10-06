@@ -101,7 +101,7 @@ describe('/mcp のツール', () => {
     request.mockReset();
   });
 
-  it('tools/list に載るのはこの 5 つだけ', async () => {
+  it('tools/list に載るのはこの 6 つだけ', async () => {
     const res = await rpc('tools/list', {}, { 'x-api-key': TOKEN });
     expect(res.status).toBe(200);
 
@@ -112,6 +112,7 @@ describe('/mcp のツール', () => {
       'get_exercise',
       'get_exercise_minutes',
       'get_resting_heart_rate',
+      'get_hrv',
       'get_sleep',
     ]);
   });

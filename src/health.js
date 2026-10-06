@@ -158,6 +158,20 @@ export function restingHeartRate(dataPoint) {
   };
 }
 
+/**
+ * HRV の dataPoint を `{ localDate, avgRmssdMs, deepSleepRmssdMs }` に整形する。
+ * avg はその日の睡眠全体、deepSleep は深い睡眠中だけの RMSSD。
+ * Google Health アプリの表示に合わせて整数に丸める
+ */
+export function heartRateVariability(dataPoint) {
+  const hrv = dataPoint.dailyHeartRateVariability ?? {};
+  return {
+    localDate: toIsoDay(hrv.date),
+    avgRmssdMs: round(num(hrv.averageHeartRateVariabilityMilliseconds), 0),
+    deepSleepRmssdMs: round(num(hrv.deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds), 0),
+  };
+}
+
 /** 睡眠ステージの enum を出力キーに対応づける */
 const SLEEP_STAGE_KEYS = {
   DEEP: 'deep',
@@ -363,6 +377,22 @@ export async function listRestingHeartRate({ from, to } = {}) {
   // 推移を追いやすいよう日付の昇順で返す
   return points
     .map(restingHeartRate)
+    .sort((a, b) => (a.localDate ?? '').localeCompare(b.localDate ?? ''));
+}
+
+export async function listHeartRateVariability({ from, to } = {}) {
+  const { fromDay, toDay } = resolveRange({ from, to });
+
+  // date は日単位の値。to を含めるため翌日未満で切る
+  const filter =
+    `daily_heart_rate_variability.date>="${fromDay}" AND ` +
+    `daily_heart_rate_variability.date<"${shiftDays(toDay, 1)}"`;
+
+  const points = await listDataPoints('daily-heart-rate-variability', filter, 100);
+
+  // 推移を追いやすいよう日付の昇順で返す
+  return points
+    .map(heartRateVariability)
     .sort((a, b) => (a.localDate ?? '').localeCompare(b.localDate ?? ''));
 }
 

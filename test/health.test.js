@@ -3,6 +3,8 @@ import {
   dataPointWithId,
   distancePoint,
   heartRatePoint,
+  hrvDataPoint,
+  hrvOn,
   restingHeartRateDataPoint,
   restingHeartRateOn,
   runningDataPoint,
@@ -19,6 +21,7 @@ const {
   getExercise,
   getExerciseMinutes,
   listExercises,
+  listHeartRateVariability,
   listRestingHeartRate,
   listSleep,
   todayInZone,
@@ -313,6 +316,82 @@ describe('listRestingHeartRate', () => {
   it('dataPoints が欠けたレスポンスでも落ちない', async () => {
     request.mockResolvedValue({ data: {} });
     expect(await listRestingHeartRate({})).toEqual([]);
+  });
+});
+
+describe('listHeartRateVariability', () => {
+  it('daily-heart-rate-variability のエンドポイントを叩く', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [] } });
+    await listHeartRateVariability({});
+
+    expect(urlOf().pathname).toBe('/v4/users/me/dataTypes/daily-heart-rate-variability/dataPoints');
+  });
+
+  it('date で期間を絞る（to を含めるため翌日未満で切る）', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [] } });
+    await listHeartRateVariability({ from: '2026-08-01', to: '2026-08-25' });
+
+    expect(urlOf().searchParams.get('filter')).toBe(
+      'daily_heart_rate_variability.date>="2026-08-01" AND daily_heart_rate_variability.date<"2026-08-26"',
+    );
+  });
+
+  describe('既定の期間', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-25T12:00:00Z'));
+      request.mockResolvedValue({ data: { dataPoints: [] } });
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('省略時は今日までの 30 日間', async () => {
+      await listHeartRateVariability();
+
+      expect(urlOf().searchParams.get('filter')).toBe(
+        'daily_heart_rate_variability.date>="2026-07-26" AND daily_heart_rate_variability.date<"2026-08-26"',
+      );
+    });
+  });
+
+  it('localDate と RMSSD だけを返す', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [hrvDataPoint] } });
+
+    expect(await listHeartRateVariability({})).toEqual([
+      { localDate: '2026-03-01', avgRmssdMs: 41, deepSleepRmssdMs: 35 },
+    ]);
+  });
+
+  it('日付の昇順に並べ替える', async () => {
+    // API は新しい順に返す
+    request.mockResolvedValue({
+      data: {
+        dataPoints: [hrvOn(2026, 12, 1, 30), hrvOn(2026, 8, 10, 40), hrvOn(2026, 8, 2, 50)],
+      },
+    });
+
+    expect((await listHeartRateVariability({})).map((r) => r.localDate)).toEqual([
+      '2026-08-02',
+      '2026-08-10',
+      '2026-12-01',
+    ]);
+  });
+
+  it('nextPageToken を辿って全ページ取得する', async () => {
+    request
+      .mockResolvedValueOnce({
+        data: { dataPoints: [hrvOn(2026, 8, 1, 30)], nextPageToken: 'TOKEN' },
+      })
+      .mockResolvedValueOnce({ data: { dataPoints: [hrvOn(2026, 8, 2, 40)] } });
+
+    const result = await listHeartRateVariability({});
+
+    expect(urlOf(1).searchParams.get('pageToken')).toBe('TOKEN');
+    expect(result.map((r) => r.avgRmssdMs)).toEqual([30, 40]);
+  });
+
+  it('dataPoints が欠けたレスポンスでも落ちない', async () => {
+    request.mockResolvedValue({ data: {} });
+    expect(await listHeartRateVariability({})).toEqual([]);
   });
 });
 
