@@ -1,6 +1,12 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { pbkdf2Sync, timingSafeEqual } from 'node:crypto';
 
-const digest = (value) => createHash('sha256').update(value).digest();
+const KDF_SALT = 'api-key-auth-v1';
+const KDF_ITERATIONS = 210000;
+const KDF_KEYLEN = 32;
+const KDF_DIGEST = 'sha256';
+
+const digest = (value) =>
+  pbkdf2Sync(value, KDF_SALT, KDF_ITERATIONS, KDF_KEYLEN, KDF_DIGEST);
 
 /**
  * x-api-key ヘッダーを期待値と定数時間で比較する Hono ミドルウェアを返す。
