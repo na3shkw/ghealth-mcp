@@ -1,12 +1,9 @@
-import { pbkdf2Sync, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
-const KDF_SALT = 'api-key-auth-v1';
-const KDF_ITERATIONS = 210000;
-const KDF_KEYLEN = 32;
-const KDF_DIGEST = 'sha256';
+// 比較の前に長さを揃えるためだけの鍵なので、秘密である必要はない
+const COMPARE_KEY = 'ghealth-mcp:api-key-compare';
 
-const digest = (value) =>
-  pbkdf2Sync(value, KDF_SALT, KDF_ITERATIONS, KDF_KEYLEN, KDF_DIGEST);
+const digest = (value) => createHmac('sha256', COMPARE_KEY).update(value).digest();
 
 /**
  * x-api-key ヘッダーを期待値と定数時間で比較する Hono ミドルウェアを返す。
