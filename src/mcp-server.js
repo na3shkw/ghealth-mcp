@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   getExercise,
   getExerciseMinutes,
+  getSleepStages,
   listExercises,
   listHeartRateVariability,
   listRestingHeartRate,
@@ -131,13 +132,36 @@ export function createServer() {
         '睡眠セッションを就寝時刻の昇順で返す。就寝・起床時刻、床上時間、睡眠時間、睡眠効率、ステージ別の分数を含む。'
         + 'sleepOnsetMinutes は入眠までにかかった分数で、セッション冒頭の AWAKE 区間から算出する。'
         + '布団に入ってからではなくデバイスが睡眠を検出してからが起点なので、体感の寝付きの悪さより短く出る。'
-        + '就寝は日をまたぐため、期間の指定も localDate も起床日が基準。',
+        + '就寝は日をまたぐため、期間の指定も localDate も起床日が基準。'
+        + '区間ごとのステージの推移は get_sleep_stages で取れる。',
       inputSchema: z.object({
         from: isoDate.optional().describe('開始日 (起床日のローカル日付)。省略時は to の 30 日前'),
         to: isoDate.optional().describe('終了日 (起床日のローカル日付, この日を含む)。省略時は今日'),
       }),
     },
     guard((args) => listSleep(args)),
+  );
+
+  server.registerTool(
+    'get_sleep_stages',
+    {
+      title: '睡眠ステージの推移',
+      description:
+        '睡眠セッション 1 件について、ステージ (deep / light / rem / awake) の区間を時刻の昇順で返す。'
+        + 'date だけを渡すとその起床日のメインの睡眠を返す。'
+        + '昼寝のステージを見たいときは、get_sleep で isMainSleep が false のセッションの id を渡す。'
+        + 'shortAwakenings はアプリで「寝付けない状態」と表示される数分未満の覚醒で、stages には現れない。'
+        + 'その時間は重なっている light / rem 区間の分数に含まれている。',
+      inputSchema: z.object({
+        id: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('睡眠セッションの識別子。get_sleep が返す値。指定すると date より優先'),
+        date: isoDate.optional().describe('起床日 (ローカル日付)。id を指定しないときに使う'),
+      }).refine((a) => a.id || a.date, 'id か date のどちらかを指定してください'),
+    },
+    guard((args) => getSleepStages(args)),
   );
 
   return server;

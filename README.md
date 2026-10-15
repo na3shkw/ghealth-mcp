@@ -204,7 +204,7 @@ claude.ai のカスタムコネクタに登録するときは、認証方式を�
 | `bedtime` | 就寝時刻（オフセット付きのローカル時刻） |
 | `wakeTime` | 起床時刻（同上） |
 | `type` | セッション種別（API の列挙値） |
-| `isMainSleep` | その晩のメインの睡眠か |
+| `isMainSleep` | その晩のメインの睡眠か。昼寝は `false`、どちらか判断できない記録では返さない |
 | `timeInBed` | 床上時間（`M:SS`、1 時間超は `H:MM:SS`） |
 | `timeAsleep` | 睡眠時間（同じ書式） |
 | `awakeMinutes` | 覚醒していた分数 |
@@ -215,6 +215,18 @@ claude.ai のカスタムコネクタに登録するときは、認証方式を�
 | `stageMinutes` | ステージ別の分数（`deep` / `light` / `rem` / `awake` ほか） |
 
 `sleepOnsetMinutes` は入眠潜時。API の `summary.minutesToFallAsleep` は Fitbit 側が埋めておらず常に 0 で来るため、セッション冒頭に連続する `AWAKE` 区間の長さから算出している（`minutesToFallAsleep` は 0 以外が入っていたときだけ返す）。起点は「布団に入った時刻」ではなく「デバイスが睡眠セッションを検出した時刻」なので、体感の寝付きの悪さより短く出る。
+
+### `get_sleep_stages`
+
+睡眠セッション 1 件について、ステージの区間を時刻の昇順で返す。入力は `id` か `date`（`YYYY-MM-DD`、起床日）のどちらか。`date` だけならその起床日のメインの睡眠を返す（複数あれば最後に寝たもの）。昼寝は `get_sleep` で `isMainSleep` が `false` のセッションの `id` を渡す。`id` を渡すと `date` より優先する。1 晩で区間が数十件になるため、期間では指定できない。該当するセッションが無ければ、次に何を指定すればよいかを添えたエラーを返す。
+
+| 出力 | 説明 |
+| --- | --- |
+| `id` / `localDate` / `bedtime` / `wakeTime` | `get_sleep` と同じ |
+| `stages` | `{ start, end, stage, minutes }` の配列。`stage` は `deep` / `light` / `rem` / `awake` ほか |
+| `shortAwakenings` | 数分未満の短い覚醒の `{ start, end }` の配列 |
+
+`stages` は分の境界で区切られて隙間なく連続していて、ステージ別に `minutes` を足すと `get_sleep` の `stageMinutes` と一致する。`shortAwakenings` はアプリで「寝付けない状態」と表示されるもので、`stages` には現れず、その時間は重なっている `light` / `rem` 区間に含まれる。API はこの区間の `type` に重なっている側のステージ名を入れて返すので、時刻だけを返している。
 
 ## 開発
 
