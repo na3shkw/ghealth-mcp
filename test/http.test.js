@@ -101,7 +101,7 @@ describe('/mcp のツール', () => {
     request.mockReset();
   });
 
-  it('tools/list に載るのはこの 6 つだけ', async () => {
+  it('tools/list に載るのはこの 7 つだけ', async () => {
     const res = await rpc('tools/list', {}, { 'x-api-key': TOKEN });
     expect(res.status).toBe(200);
 
@@ -114,6 +114,7 @@ describe('/mcp のツール', () => {
       'get_resting_heart_rate',
       'get_hrv',
       'get_sleep',
+      'get_sleep_stages',
     ]);
   });
 
@@ -148,6 +149,19 @@ describe('/mcp のツール', () => {
     const { result } = await body(res);
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('ダミーの失敗');
+  });
+
+  it('get_sleep_stages に id も date も無ければ API を呼ばずに落とす', async () => {
+    const res = await rpc(
+      'tools/call',
+      { name: 'get_sleep_stages', arguments: {} },
+      { 'x-api-key': TOKEN },
+    );
+
+    const { result } = await body(res);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('id か date のどちらかを指定してください');
+    expect(request).not.toHaveBeenCalled();
   });
 });
 

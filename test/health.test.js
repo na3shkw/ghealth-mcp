@@ -9,6 +9,7 @@ import {
   restingHeartRateOn,
   runningDataPoint,
   shortExerciseDataPoint,
+  sleepDataPoint,
   sleepStartingAt,
   stepsPoint,
 } from './fixtures.js';
@@ -20,6 +21,7 @@ const {
   defaultTimeZone,
   getExercise,
   getExerciseMinutes,
+  getSleepStages,
   listExercises,
   listHeartRateVariability,
   listRestingHeartRate,
@@ -658,4 +660,81 @@ describe('defaultTimeZone', () => {
       expect(() => defaultTimeZone({ GHEALTH_TZ: zone })).toThrow(zone);
     },
   );
+});
+
+describe('getSleepStages', () => {
+  const nap = {
+    ...sleepStartingAt('2026-08-25T03:00:00Z', 'nap'),
+    sleep: {
+      ...sleepDataPoint.sleep,
+      metadata: { stagesStatus: 'SUCCEEDED', processed: true, nap: true },
+    },
+  };
+
+  it('起床日 1 日分を civil_end_time で絞る', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [sleepDataPoint] } });
+    await getSleepStages({ date: '2026-08-31' });
+
+    expect(urlOf().pathname).toBe('/v4/users/me/dataTypes/sleep/dataPoints');
+    expect(urlOf().searchParams.get('filter')).toBe(
+      'sleep.interval.civil_end_time>="2026-08-31T00:00:00" AND ' +
+        'sleep.interval.civil_end_time<"2026-09-01T00:00:00"',
+    );
+  });
+
+  it('昼寝を除いてメインの睡眠を返す', async () => {
+    request.mockResolvedValue({
+      data: { dataPoints: [nap, sleepStartingAt('2026-08-24T14:00:00Z', 'main')] },
+    });
+
+    expect((await getSleepStages({ date: '2026-08-25' })).id).toBe('main');
+  });
+
+  it('メインの睡眠が複数あれば最後に寝たものを返す', async () => {
+    // sleepStartingAt は mainSleep: true のフィクスチャを元にしている
+    request.mockResolvedValue({
+      data: {
+        dataPoints: [
+          sleepStartingAt('2026-08-24T13:00:00Z', 'earlier'),
+          sleepStartingAt('2026-08-24T18:00:00Z', 'later'),
+        ],
+      },
+    });
+
+    expect((await getSleepStages({ date: '2026-08-25' })).id).toBe('later');
+  });
+
+  it('メインの睡眠が無ければ、昼寝は id で引くよう案内して落とす', async () => {
+    request.mockResolvedValue({ data: { dataPoints: [nap] } });
+
+    await expect(getSleepStages({ date: '2026-08-25' })).rejects.toThrow(
+      /2026-08-25 のメインの睡眠がありません.*get_sleep.*id/,
+    );
+  });
+
+  it('id を渡すとそのセッションを 1 件取得する（昼寝も可）', async () => {
+    request.mockResolvedValue({ data: nap });
+
+    const result = await getSleepStages({ id: 'nap', date: '2026-08-25' });
+
+    expect(urlOf().pathname).toBe('/v4/users/me/dataTypes/sleep/dataPoints/nap');
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(result.id).toBe('nap');
+  });
+
+  it('存在しない id は get_sleep の id を使うよう案内して落とす', async () => {
+    request.mockRejectedValue(
+      Object.assign(new Error('The requested resource was not found.'), { status: 404 }),
+    );
+
+    await expect(getSleepStages({ id: '999' })).rejects.toThrow(
+      /睡眠セッションが見つかりません: 999.*get_sleep/,
+    );
+  });
+
+  it('404 以外のエラーはそのまま伝播させる', async () => {
+    request.mockRejectedValue(Object.assign(new Error('Invalid sleep ID: abc'), { status: 400 }));
+
+    await expect(getSleepStages({ id: 'abc' })).rejects.toThrow('Invalid sleep ID: abc');
+  });
 });

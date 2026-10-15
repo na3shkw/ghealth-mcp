@@ -196,6 +196,10 @@ const minutesToDuration = (minutes) => {
   return n == null ? undefined : formatDuration(n * 60);
 };
 
+/** stages / shortAwakenings を開始時刻の昇順に並べる。API の返す順は保証されていない */
+const byStartTime = (list) =>
+  [...(list ?? [])].sort((a, b) => (a.startTime ?? '').localeCompare(b.startTime ?? ''));
+
 /**
  * 入眠までにかかった分数を stages の先頭から求める。
  * summary.minutesToFallAsleep は Fitbit 側が埋めておらず常に 0 で来るため、
@@ -205,11 +209,8 @@ const minutesToDuration = (minutes) => {
 export function sleepOnsetMinutes(stages) {
   if (!Array.isArray(stages) || stages.length === 0) return undefined;
 
-  // 並び順は保証されていないので開始時刻で整列してから先頭を見る
-  const sorted = [...stages].sort((a, b) => (a.startTime ?? '').localeCompare(b.startTime ?? ''));
-
   let seconds = 0;
-  for (const stage of sorted) {
+  for (const stage of byStartTime(stages)) {
     if (stage.type !== 'AWAKE') break;
     const s = intervalSeconds(stage);
     // 区間の長さが取れないものが混じったら潜時は確定できない
@@ -220,9 +221,36 @@ export function sleepOnsetMinutes(stages) {
 }
 
 /**
+ * 睡眠セッションの識別子と就寝・起床時刻。get_sleep と get_sleep_stages で同じ値を返すために共有する
+ */
+function sleepTimes(dataPoint) {
+  const interval = dataPoint.sleep?.interval ?? {};
+  // 終了側のオフセットで起床時刻を組む
+  const wakeTime = toLocalDate(interval.endTime, interval.endUtcOffset ?? interval.startUtcOffset);
+  return {
+    id: dataPointId(dataPoint.name),
+    // 就寝は日をまたぐため、起床日を「その晩」の代表日として扱う
+    localDate: wakeTime?.slice(0, 10),
+    bedtime: toLocalDate(interval.startTime, interval.startUtcOffset),
+    wakeTime,
+  };
+}
+
+/**
+ * その晩のメインの睡眠か。メインは mainSleep: true、昼寝は mainSleep を持たず nap: true で来る。
+ * どちらも無い記録はメインか昼寝か判断できないので undefined にする
+ */
+function isMainSleep(sleep) {
+  const metadata = sleep?.metadata ?? {};
+  if (metadata.mainSleep === true) return true;
+  if (metadata.nap === true) return false;
+  return undefined;
+}
+
+/**
  * 睡眠の dataPoint を整形する。
- * ステージ別の分数は API の summary.stagesSummary をそのまま使う。
- * stages の区間を積み上げても近い値にはなるが、summary 側が Fitbit の確定値。
+ * ステージ別の分数は API の summary.stagesSummary をそのまま使う
+ * （stages の区間を積み上げた値と一致する）。
  */
 export function sleepSession(dataPoint) {
   const s = dataPoint.sleep ?? {};
@@ -240,17 +268,11 @@ export function sleepSession(dataPoint) {
   const inBedSeconds = intervalSeconds(interval);
   const inBed =
     num(summary.minutesInSleepPeriod) ?? (inBedSeconds == null ? undefined : inBedSeconds / 60);
-  // 終了側のオフセットで起床時刻を組む
-  const wakeTime = toLocalDate(interval.endTime, interval.endUtcOffset ?? interval.startUtcOffset);
 
   return {
-    id: dataPointId(dataPoint.name),
-    // 就寝は日をまたぐため、起床日を「その晩」の代表日として扱う
-    localDate: wakeTime?.slice(0, 10),
-    bedtime: toLocalDate(interval.startTime, interval.startUtcOffset),
-    wakeTime,
+    ...sleepTimes(dataPoint),
     type: s.type,
-    isMainSleep: s.metadata?.mainSleep,
+    isMainSleep: isMainSleep(s),
     timeInBed: minutesToDuration(summary.minutesInSleepPeriod) ?? formatDuration(inBedSeconds),
     timeAsleep: minutesToDuration(summary.minutesAsleep),
     awakeMinutes: num(summary.minutesAwake),
@@ -261,6 +283,34 @@ export function sleepSession(dataPoint) {
     shortAwakenings: s.shortAwakenings?.length,
     efficiencyPercent: asleep != null && inBed ? round((asleep / inBed) * 100, 1) : undefined,
     stageMinutes: Object.keys(stageMinutes).length > 0 ? stageMinutes : undefined,
+  };
+}
+
+const segmentTimes = (segment) => ({
+  start: toLocalDate(segment.startTime, segment.startUtcOffset),
+  end: toLocalDate(segment.endTime, segment.endUtcOffset ?? segment.startUtcOffset),
+});
+
+/**
+ * 睡眠の dataPoint をステージの区間列に整形する。
+ * shortAwakenings はアプリで「寝付けない状態」と表示される数分未満の覚醒で、
+ * stages とは別に返り、重なる LIGHT / REM 区間の分数にそのまま含まれている。
+ * type には重なっている側のステージ名が入っていて覚醒を表さないので、時刻だけ返す。
+ */
+export function sleepStages(dataPoint) {
+  const s = dataPoint.sleep ?? {};
+
+  return {
+    ...sleepTimes(dataPoint),
+    stages: byStartTime(s.stages).map((stage) => {
+      const seconds = intervalSeconds(stage);
+      return {
+        ...segmentTimes(stage),
+        stage: SLEEP_STAGE_KEYS[stage.type] ?? stage.type,
+        minutes: seconds == null ? undefined : round(seconds / 60, 1),
+      };
+    }),
+    shortAwakenings: byStartTime(s.shortAwakenings).map(segmentTimes),
   };
 }
 
@@ -396,22 +446,62 @@ export async function listHeartRateVariability({ from, to } = {}) {
     .sort((a, b) => (a.localDate ?? '').localeCompare(b.localDate ?? ''));
 }
 
-export async function listSleep({ from, to } = {}) {
-  const { fromDay, toDay } = resolveRange({ from, to });
-
-  // sleep は civil_end_time（起床時刻のローカル時刻）でしか絞り込めない。
-  // localDate を起床日にしてあるのと同じ基準になる。to を含めるため翌日 0 時未満で切る
+/**
+ * 起床日の範囲で sleep の dataPoints を集める。
+ * sleep は civil_end_time（起床時刻のローカル時刻）でしか絞り込めない。
+ * localDate を起床日にしてあるのと同じ基準になる。toDay を含めるため翌日 0 時未満で切る
+ */
+function listSleepPoints(fromDay, toDay) {
   const filter =
     `sleep.interval.civil_end_time>="${fromDay}T00:00:00" AND ` +
     `sleep.interval.civil_end_time<"${shiftDays(toDay, 1)}T00:00:00"`;
 
   // sleep はページサイズの上限が 25
-  const points = await listDataPoints('sleep', filter, 25);
+  return listDataPoints('sleep', filter, 25);
+}
+
+export async function listSleep({ from, to } = {}) {
+  const { fromDay, toDay } = resolveRange({ from, to });
+  const points = await listSleepPoints(fromDay, toDay);
 
   // 推移を追いやすいよう就寝時刻の昇順で返す
   return points
     .map(sleepSession)
     .sort((a, b) => (a.bedtime ?? '').localeCompare(b.bedtime ?? ''));
+}
+
+/**
+ * 睡眠セッション 1 件をステージの区間列で返す。
+ * id があればそのセッション（昼寝も可）、無ければ起床日 date のメインの睡眠。
+ * 見つからないときは、呼び出し側のモデルが次に何をすればよいか分かるメッセージで落とす。
+ */
+export async function getSleepStages({ id, date } = {}) {
+  if (id) {
+    try {
+      return sleepStages(await getDataPoint('sleep', id));
+    } catch (e) {
+      // API の 404 は「リソースが見つからない」としか言わない
+      if (e.status === 404) {
+        throw new Error(`睡眠セッションが見つかりません: ${id}。id は get_sleep が返す値を指定してください`);
+      }
+      throw e;
+    }
+  }
+
+  const points = await listSleepPoints(date, date);
+  // 同じ起床日にメインが複数あれば、起床に最も近い最後に寝たものを選ぶ
+  const main = points
+    .filter((p) => isMainSleep(p.sleep) === true)
+    .sort((a, b) =>
+      (b.sleep.interval?.startTime ?? '').localeCompare(a.sleep.interval?.startTime ?? ''),
+    )[0];
+  if (!main) {
+    throw new Error(
+      `起床日 ${date} のメインの睡眠がありません。` +
+        '昼寝のステージは get_sleep で isMainSleep が false のセッションの id を指定してください',
+    );
+  }
+  return sleepStages(main);
 }
 
 const MINUTE_MS = 60_000;

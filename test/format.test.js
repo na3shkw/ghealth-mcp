@@ -11,6 +11,7 @@ import {
   restingHeartRate,
   sleepOnsetMinutes,
   sleepSession,
+  sleepStages,
   summarize,
   toIsoDay,
   toLocalDate,
@@ -328,6 +329,27 @@ describe('sleepSession', () => {
     expect(s.isMainSleep).toBe(true);
   });
 
+  it('昼寝は isMainSleep を false で返す', () => {
+    const nap = {
+      ...sleepDataPoint,
+      sleep: {
+        ...sleepDataPoint.sleep,
+        metadata: { stagesStatus: 'SUCCEEDED', processed: true, nap: true },
+      },
+    };
+
+    expect(sleepSession(nap).isMainSleep).toBe(false);
+  });
+
+  it('mainSleep も nap も無い記録は isMainSleep を返さない', () => {
+    const unknown = {
+      ...sleepDataPoint,
+      sleep: { ...sleepDataPoint.sleep, metadata: { stagesStatus: 'SUCCEEDED', processed: true } },
+    };
+
+    expect(sleepSession(unknown).isMainSleep).toBeUndefined();
+  });
+
   it('summary がない記録では床上時間を interval から出す', () => {
     const s = sleepSession(classicSleepDataPoint);
 
@@ -344,6 +366,67 @@ describe('sleepSession', () => {
 
   it('空の dataPoint でも落ちない', () => {
     expect(() => sleepSession({})).not.toThrow();
+  });
+});
+
+describe('sleepStages', () => {
+  it('ステージの区間を開始時刻の昇順にローカル時刻で並べる', () => {
+    const { stages } = sleepStages(sleepDataPoint);
+
+    expect(stages.map((s) => s.start)).toEqual([
+      '2026-03-14T23:30:00+09:00',
+      '2026-03-15T00:45:00+09:00',
+      '2026-03-15T01:30:00+09:00',
+      '2026-03-15T02:15:00+09:00',
+      '2026-03-15T07:15:00+09:00',
+    ]);
+    expect(stages[1]).toEqual({
+      start: '2026-03-15T00:45:00+09:00',
+      end: '2026-03-15T01:30:00+09:00',
+      stage: 'light',
+      minutes: 45,
+    });
+  });
+
+  it('並び順が崩れて来ても開始時刻で整列する', () => {
+    const reversed = {
+      ...sleepDataPoint,
+      sleep: { ...sleepDataPoint.sleep, stages: [...sleepDataPoint.sleep.stages].reverse() },
+    };
+
+    expect(sleepStages(reversed).stages.map((s) => s.stage)).toEqual([
+      'awake',
+      'light',
+      'deep',
+      'rem',
+      'awake',
+    ]);
+  });
+
+  it('短い覚醒は時刻だけ返し、重なるステージ名の type は捨てる', () => {
+    const { shortAwakenings } = sleepStages(sleepDataPoint);
+
+    expect(shortAwakenings).toHaveLength(7);
+    expect(shortAwakenings[0]).toEqual({
+      start: '2026-03-15T02:20:00+09:00',
+      end: '2026-03-15T02:21:00+09:00',
+    });
+  });
+
+  it('就寝・起床と起床日は get_sleep と同じ値を返す', () => {
+    const s = sleepStages(sleepDataPoint);
+
+    expect(s.id).toBe('3333333333');
+    expect(s.localDate).toBe('2026-03-15');
+    expect(s.bedtime).toBe('2026-03-14T23:30:00+09:00');
+    expect(s.wakeTime).toBe('2026-03-15T07:30:00+09:00');
+  });
+
+  it('stages がない記録では空配列を返す', () => {
+    const s = sleepStages(classicSleepDataPoint);
+
+    expect(s.stages).toEqual([]);
+    expect(s.shortAwakenings).toEqual([]);
   });
 });
 
